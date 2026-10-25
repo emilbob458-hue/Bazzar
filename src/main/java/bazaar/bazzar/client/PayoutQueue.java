@@ -14,6 +14,7 @@ final class PayoutQueue {
     private static final long SEND_GAP_MS = 3_000L;
     private static final long REPLY_TIMEOUT_MS = 6_000L;
     private static final int MAX_SLOW_DOWN_RETRIES = 5;
+    private static final double MIN_RECEIVED = 5.0d;
     private static final Pattern SENT_PATTERN =
             Pattern.compile("(?i)^\\s*you\\s+sent\\s+.*?tokens?\\s+to\\s+(\\w{1,16})");
 
@@ -25,6 +26,9 @@ final class PayoutQueue {
     }
 
     static void enqueue(Minecraft client, String kind, String sender, double received, double total, String amountText) {
+        if (received <= MIN_RECEIVED) {
+            return;
+        }
         PayoutLog.Entry entry = PayoutLog.addQueued(kind, sender, received, total);
         QUEUE.addLast(new Pending(entry, sender, amountText));
         String unit = "gem".equals(kind) ? (received == 1.0d ? " gem" : " gems")
