@@ -19,6 +19,8 @@ final class BazzarConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("bazzar.json");
     private static final long CACHE_TTL_MS = 1000L;
+    private static final String DEFAULT_TRIGGER = "hotdog";
+    private static final String DEFAULT_TRIGGER_COMMAND = "/launchtizzle";
 
     private static State cached;
     private static long cachedAtMs;
@@ -237,6 +239,9 @@ final class BazzarConfig {
         while (loaded.chatTriggerSelfOnly.size() < 8) {
             loaded.chatTriggerSelfOnly.add(false);
         }
+        if (!root.has("defaultTriggerAdded")) {
+            addDefaultTrigger(loaded);
+        }
         if (loaded.cookieAutoFallback == null || loaded.cookieAutoFallback.isBlank()) {
             loaded.cookieAutoFallback = defaults.cookieAutoFallback;
         }
@@ -259,6 +264,28 @@ final class BazzarConfig {
             loaded.celestialBoosterReadyAt = new HashMap<>();
         }
         return loaded;
+    }
+
+    // Older configs get the default trigger once, in the first empty row, unless they already have it.
+    private static void addDefaultTrigger(State loaded) {
+        loaded.defaultTriggerAdded = true;
+        List<String> messages = loaded.chatTriggerMessages;
+        List<String> commands = loaded.chatTriggerCommands;
+        for (String message : messages) {
+            if (message != null && message.trim().equalsIgnoreCase(DEFAULT_TRIGGER)) {
+                return;
+            }
+        }
+        int rows = Math.min(messages.size(), commands.size());
+        for (int i = 0; i < rows; i++) {
+            boolean emptyMessage = messages.get(i) == null || messages.get(i).isBlank();
+            boolean emptyCommand = commands.get(i) == null || commands.get(i).isBlank();
+            if (emptyMessage && emptyCommand) {
+                messages.set(i, DEFAULT_TRIGGER);
+                commands.set(i, DEFAULT_TRIGGER_COMMAND);
+                return;
+            }
+        }
     }
 
     static final class State {
@@ -284,8 +311,9 @@ final class BazzarConfig {
         boolean guildQuestAutoScanEnabled = false;
         int guildQuestAutoScanIntervalSeconds = 180;
         String themeId = "indigo";
-        List<String> chatTriggerMessages = new ArrayList<>(List.of("", "", "", "", "", "", "", ""));
-        List<String> chatTriggerCommands = new ArrayList<>(List.of("", "", "", "", "", "", "", ""));
+        List<String> chatTriggerMessages = new ArrayList<>(List.of(DEFAULT_TRIGGER, "", "", "", "", "", "", ""));
+        List<String> chatTriggerCommands = new ArrayList<>(List.of(DEFAULT_TRIGGER_COMMAND, "", "", "", "", "", "", ""));
+        boolean defaultTriggerAdded = true;
         List<String> macroKeyMessages = new ArrayList<>(List.of("", "", "", "", "", "", "", ""));
         boolean macroTimerEnabled = false;
         String macroTimerMessage = "";
