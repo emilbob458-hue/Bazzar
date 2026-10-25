@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "bazzar",
+  "version": "${version}",
+  "name": "Bazaar",
+  "description": "Bazaar tracker and utilities",
+  "authors": [],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/bazzar/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-datagen": [
+      "bazaar.bazzar.client.BazzarDataGenerator"
+    ],
+    "client": [
+      "bazaar.bazzar.client.BazzarClient"
+    ],
+    "main": [
+      "bazaar.bazzar.Bazzar"
+    ]
+  },
+  "mixins": [
+    "bazzar.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version_range}"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "key.bazzar.scan": "Scan Bazaar",
+  "key.bazzar.farms": "Open Farm Warps",
+  "key.bazzar.hud_scale_up": "HUD Scale Up",
+  "key.bazzar.hud_scale_down": "HUD Scale Down",
+  "key.bazzar.toggle_hud": "Toggle Bazaar HUD",
+  "key.bazzar.tracker_gui": "Open Crop Tracker",
+  "key.bazzar.quest_hud_toggle": "Scan Guild Quests (/gq)",
+  "key.bazzar.pv_search": "PV Search",
+  "key.bazzar.macro_1": "Chat Macro 1",
+  "key.bazzar.macro_2": "Chat Macro 2",
+  "key.bazzar.macro_3": "Chat Macro 3",
+  "key.bazzar.macro_4": "Chat Macro 4",
+  "key.bazzar.macro_5": "Chat Macro 5",
+  "key.bazzar.macro_6": "Chat Macro 6",
+  "key.bazzar.macro_7": "Chat Macro 7",
+  "key.bazzar.macro_8": "Chat Macro 8",
+  "key.categories.bazzar": "Bazaar"
+}

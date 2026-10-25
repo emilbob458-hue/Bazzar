@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "shady",
+  "version": "1.0.0",
+  "name": "Shady Summoner Timer",
+  "description": "Tracks Shady Summoner spawn timer and crop type from chat messages",
+  "authors": ["Shady Mod"],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/shady/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.shady.mod.client.ShadyClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": ">=1.21",
+    "fabric-api": "*"
+  }
+}
