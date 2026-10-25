@@ -362,9 +362,26 @@ public final class CookieController {
         if (nextCookie == null) {
             return;
         }
+        // /cookie toggles, so stepping down onto the cookie that's already running would turn it off.
+        String active = detectActiveCookieFromBossbar(client);
+        if (nextCookie.equals(active) || (rushCookiePending && nextCookie.equals(rushPreviousCookie))) {
+            lastUsedLabel = nextCookie;
+            lastCookieCommand = nextCookie;
+            if (rushCookiePending) {
+                logRush("  -> no " + rushCookieType + " cookies, kept " + nextCookie);
+                rushCookiePending = false;
+                rushPreviousCookie = null;
+                rushCookieType = null;
+            }
+            return;
+        }
         sendServerCommand(client, "cookie " + nextCookie);
         lastUsedLabel = nextCookie;
         lastCookieCommand = nextCookie;
+        if (rushCookiePending) {
+            logRush("  -> no " + rushCookieType + " cookies, using " + nextCookie);
+            rushCookieType = nextCookie;
+        }
     }
 
     static String nextCookieTierDown(String current) {
