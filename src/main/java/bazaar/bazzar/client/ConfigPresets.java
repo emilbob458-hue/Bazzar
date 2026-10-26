@@ -51,7 +51,8 @@ final class ConfigPresets {
                                 .executes(ctx -> reply(ctx, load(StringArgumentType.getString(ctx, "name"))))))
                         .then(literal("delete").then(argument("name", StringArgumentType.word())
                                 .suggests(presetNames)
-                                .executes(ctx -> reply(ctx, delete(StringArgumentType.getString(ctx, "name"))))))));
+                                .executes(ctx -> reply(ctx, delete(StringArgumentType.getString(ctx, "name"))))))
+                        .then(PublicPresets.command())));
     }
 
     static Result save(String rawName) {
@@ -100,6 +101,14 @@ final class ConfigPresets {
         return new Result(true, "Deleted preset " + name + ".");
     }
 
+    // The saved preset file, or null when there is none.
+    static Path file(String rawName) {
+        migrate();
+        String name = clean(rawName);
+        Path path = fileFor(name);
+        return !name.isEmpty() && Files.exists(path) ? path : null;
+    }
+
     private static void migrate() {
         if (migrated) {
             return;
@@ -142,7 +151,7 @@ final class ConfigPresets {
         context.getSource().sendFeedback(prefix()
                 .append(Component.literal(names.isEmpty() ? "No presets yet." : "Presets: ").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(String.join(", ", names)).withStyle(ChatFormatting.WHITE))
-                .append(Component.literal("  (/config set|save|delete <name>)").withStyle(ChatFormatting.DARK_GRAY)));
+                .append(Component.literal("  (/config set|save|delete <name>, /config public)").withStyle(ChatFormatting.DARK_GRAY)));
         return 1;
     }
 

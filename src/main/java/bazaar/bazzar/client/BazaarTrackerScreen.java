@@ -147,6 +147,11 @@ final class BazaarTrackerScreen extends Screen {
     private EditBox presetNameBox;
     private List<String> presetNames = new ArrayList<>();
     private long presetNamesReadMs;
+    private static boolean presetsPublicView;
+    private List<PublicPresets.Summary> publicPresets = new ArrayList<>();
+    private String publicPresetsNote = "";
+    private PublicPresets.Preset publicConfirm;
+    private long publicConfirmUntilMs;
 
     BazaarTrackerScreen() {
         super(Component.literal("Bazaar Crop Tracker"));
@@ -1376,7 +1381,13 @@ final class BazaarTrackerScreen extends Screen {
         int contentX = contentX();
         graphics.drawString(font, "Save current settings as a preset", contentX, settingsTop(), ACCENT_TEXT, false);
         drawPillButton(graphics, presetSaveButton(), "Save", mouseX, mouseY, true, false);
-        graphics.drawString(font, "Presets", contentX, presetListTopY() - 14, ACCENT_TEXT, false);
+        graphics.drawString(font, presetsPublicView ? "Public presets" : "Presets", contentX, presetListTopY() - 14, ACCENT_TEXT, false);
+        drawPillButton(graphics, presetMineButton(), "Mine", mouseX, mouseY, true, !presetsPublicView);
+        drawPillButton(graphics, presetPublicButton(), "Public", mouseX, mouseY, true, presetsPublicView);
+        if (presetsPublicView) {
+            drawPublicPresets(graphics, mouseX, mouseY);
+            return;
+        }
         if (presetNames.isEmpty()) {
             graphics.drawString(font, "No presets yet.", contentX, presetListTopY() + 3, MUTED_TEXT, false);
             return;
@@ -1385,8 +1396,9 @@ final class BazaarTrackerScreen extends Screen {
         for (int i = 0; i < rows; i++) {
             String name = presetNames.get(i);
             int y = presetListTopY() + i * presetRowStep();
-            int nameMaxW = presetLoadButton(i).x() - 8 - contentX;
+            int nameMaxW = presetShareButton(i).x() - 8 - contentX;
             graphics.drawString(font, font.plainSubstrByWidth(name, nameMaxW), contentX, y + 3, HEADER_TEXT, false);
+            drawPillButton(graphics, presetShareButton(i), "Share", mouseX, mouseY, true, false);
             drawPillButton(graphics, presetLoadButton(i), "Load", mouseX, mouseY, true, false);
             drawPillButton(graphics, presetDeleteButton(i), "Delete", mouseX, mouseY, true, false);
         }
@@ -1396,7 +1408,94 @@ final class BazaarTrackerScreen extends Screen {
         }
     }
 
+    private void drawPublicPresets(GuiGraphics graphics, int mouseX, int mouseY) {
+        int contentX = contentX();
+        if (publicPresets.isEmpty()) {
+            graphics.drawString(font, publicPresetsNote.isEmpty() ? "No public presets yet, press Share on one of yours." : publicPresetsNote,
+                    contentX, presetListTopY() + 3, MUTED_TEXT, false);
+            return;
+        }
+        int rows = Math.min(publicPresets.size(), presetRowCapacity());
+        for (int i = 0; i < rows; i++) {
+            PublicPresets.Summary preset = publicPresets.get(i);
+            int y = presetListTopY() + i * presetRowStep();
+            int maxW = presetApplyButton(i).x() - 8 - contentX;
+            String uses = preset.downloads() + " uses";
+            int usesW = font.width(uses);
+            String name = font.plainSubstrByWidth(preset.name(), Math.max(20, maxW - usesW - 8));
+            graphics.drawString(font, name, contentX, y + 3, HEADER_TEXT, false);
+            int nameW = font.width(name);
+            String author = font.plainSubstrByWidth(" by " + preset.author(), Math.max(0, maxW - usesW - 8 - nameW));
+            graphics.drawString(font, author, contentX + nameW, y + 3, MUTED_TEXT, false);
+            graphics.drawString(font, uses, presetApplyButton(i).x() - 8 - usesW, y + 3, MUTED_TEXT, false);
+            boolean confirming = publicConfirm != null && publicConfirm.code().equals(preset.code())
+                    && System.currentTimeMillis() < publicConfirmUntilMs;
+            drawPillButton(graphics, presetApplyButton(i), confirming ? "Sure?" : "Apply", mouseX, mouseY, true, confirming);
+        }
+        if (publicPresets.size() > rows) {
+            graphics.drawString(font, "+" + (publicPresets.size() - rows) + " more, use /config public list", contentX,
+                    presetListTopY() + rows * presetRowStep() + 3, MUTED_TEXT, false);
+        }
+    }
+
+    private void loadPublicPresets() {
+        publicPresetsNote = "Loading public presets...";
+        publicPresets = new ArrayList<>();
+        PublicPresets.list("top", presets -> {
+            publicPresets = presets;
+            publicPresetsNote = "";
+        }, error -> publicPresetsNote = "Could not load: " + error + ".");
+    }
+
+    private void applyPublicPreset(PublicPresets.Preset preset) {
+        publicConfirm = null;
+        ConfigPresets.Result result = PublicPresets.apply(preset);
+        if (result.ok()) {
+            pendingTheme = BazzarTheme.current();
+            rebuildWidgets();
+        }
+        statusText = result.message();
+        presetNames = ConfigPresets.names();
+    }
+
+    private boolean handlePublicPresetsClick(int mouseX, int mouseY) {
+        int rows = Math.min(publicPresets.size(), presetRowCapacity());
+        for (int i = 0; i < rows; i++) {
+            PublicPresets.Summary summary = publicPresets.get(i);
+            if (!isInside(mouseX, mouseY, presetApplyButton(i))) {
+                continue;
+            }
+            if (publicConfirm != null && publicConfirm.code().equals(summary.code())
+                    && System.currentTimeMillis() < publicConfirmUntilMs) {
+                applyPublicPreset(publicConfirm);
+                return true;
+            }
+            statusText = "Loading " + summary.name() + "...";
+            PublicPresets.fetch(summary.code(), preset -> {
+                if (preset.commands().isEmpty()) {
+                    applyPublicPreset(preset);
+                    return;
+                }
+                publicConfirm = preset;
+                publicConfirmUntilMs = System.currentTimeMillis() + 15_000L;
+                statusText = "Adds " + preset.commands().size() + " chat command(s), see /config public view "
+                        + preset.code() + ". Click again to apply.";
+            }, error -> statusText = "Could not load " + summary.name() + ": " + error + ".");
+            return true;
+        }
+        return false;
+    }
+
     private boolean handlePresetsClick(int mouseX, int mouseY) {
+        if (isInside(mouseX, mouseY, presetMineButton())) {
+            presetsPublicView = false;
+            return true;
+        }
+        if (isInside(mouseX, mouseY, presetPublicButton())) {
+            presetsPublicView = true;
+            loadPublicPresets();
+            return true;
+        }
         if (isInside(mouseX, mouseY, presetSaveButton())) {
             ConfigPresets.Result result = ConfigPresets.save(presetNameBox == null ? "" : presetNameBox.getValue());
             statusText = result.message();
@@ -1406,9 +1505,19 @@ final class BazaarTrackerScreen extends Screen {
             presetNames = ConfigPresets.names();
             return true;
         }
+        if (presetsPublicView) {
+            return handlePublicPresetsClick(mouseX, mouseY);
+        }
         int rows = Math.min(presetNames.size(), presetRowCapacity());
         for (int i = 0; i < rows; i++) {
             String name = presetNames.get(i);
+            if (isInside(mouseX, mouseY, presetShareButton(i))) {
+                statusText = "Sharing " + name + "...";
+                PublicPresets.upload(name,
+                        code -> statusText = "Shared " + name + ", code " + code + " (/config public apply " + code + ").",
+                        error -> statusText = "Could not share " + name + ": " + error + ".");
+                return true;
+            }
             if (isInside(mouseX, mouseY, presetLoadButton(i))) {
                 ConfigPresets.Result result = ConfigPresets.load(name);
                 if (result.ok()) {
@@ -1450,6 +1559,22 @@ final class BazaarTrackerScreen extends Screen {
 
     private ButtonBounds presetLoadButton(int row) {
         return new ButtonBounds(contentRight() - 112, presetListTopY() + row * presetRowStep(), 50, 16);
+    }
+
+    private ButtonBounds presetShareButton(int row) {
+        return new ButtonBounds(contentRight() - 168, presetListTopY() + row * presetRowStep(), 50, 16);
+    }
+
+    private ButtonBounds presetApplyButton(int row) {
+        return new ButtonBounds(contentRight() - 56, presetListTopY() + row * presetRowStep(), 56, 16);
+    }
+
+    private ButtonBounds presetMineButton() {
+        return new ButtonBounds(contentRight() - 100, presetListTopY() - 18, 46, 14);
+    }
+
+    private ButtonBounds presetPublicButton() {
+        return new ButtonBounds(contentRight() - 50, presetListTopY() - 18, 50, 14);
     }
 
     private ButtonBounds presetDeleteButton(int row) {
@@ -1847,6 +1972,7 @@ final class BazaarTrackerScreen extends Screen {
             {"Other Commands"},
             {"/alts <command>", "Run a command on your alts on this PC (/alts alone shows status)"},
             {"/config list|save|set|delete <name>", "Save and load config presets"},
+            {"/config public [list|view|apply|upload|delete]", "Browse public presets, or share yours with upload <name>"},
             {"/cookie <type>", "Use a cookie: auto, suspicious, cobbled, colossal, golden..."},
             {"/blacklist <crop>", "Hide a crop from the tracker, run again to unhide"},
             {"/bazzarupdate [on|off]", "Check for an update now, or turn auto update on/off"},
