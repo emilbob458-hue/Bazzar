@@ -56,9 +56,11 @@ public final class CookieController {
     private static final long CLAIMALL_COOLDOWN_MS = 3000L;
     private static final long RUSH_TRIGGER_COOLDOWN_MS = 10_000L;
     private static final long AFK_DISABLE_MS = 3 * 60_000L;
+    private static final long AFK_DISABLE_REPLY_MS = 5_000L;
     private static final long RUSH_RESTORE_TIMEOUT_MS = 30_000L;
     private static final long RUSH_RESTORE_CHECK_MS = 2_500L;
     private static final long RUSH_ENDED_IGNORE_MS = 15_000L;
+    private static final long RUSH_LATE_SWITCH_MS = 15_000L;
     private static final Path RUSH_LOG = FabricLoader.getInstance().getConfigDir().resolve("bazzar").resolve("rush-log.txt");
     private static final Logger LOGGER = LoggerFactory.getLogger("bazzar");
     private static final Pattern COOKIE_GIFT_PATTERN =
@@ -89,17 +91,20 @@ public final class CookieController {
     private static long rushRestoreCheckAtMs = 0L;
     private static String rushRestoreTarget = null;
     private static String rushRestoreFrom = null;
+    private static long rushLateUntilMs = 0L;
+    private static String rushLateTarget = null;
+    private static String rushLateFrom = null;
     private static String lastUsedLabel = "";
     private static String lastCookieCommand = null;
     private static String chatActiveCookie = null;
 
     private static long lastActivityMs = 0L;
-    private static double lastActivityX;
-    private static double lastActivityY;
-    private static double lastActivityZ;
     private static float lastActivityYaw;
     private static float lastActivityPitch;
     private static boolean afkCookieDisabled = false;
+    private static String afkDisableType = null;
+    private static long afkDisableSentMs = 0L;
+    private static boolean afkDisableRetried = false;
 
     private CookieController() {
     }
@@ -292,8 +297,12 @@ public final class CookieController {
             logRush("  -> keeping " + rushType + " (celestial boost)");
             return;
         }
+        long now = System.currentTimeMillis();
+        rushLateUntilMs = now + RUSH_LATE_SWITCH_MS;
+        rushLateTarget = previous;
+        rushLateFrom = rushType;
         restoreAfterRush(client, previous, rushType);
-        rushRestoreCheckAtMs = System.currentTimeMillis() + RUSH_RESTORE_CHECK_MS;
+        rushRestoreCheckAtMs = now + RUSH_RESTORE_CHECK_MS;
         rushRestoreTarget = previous;
         rushRestoreFrom = rushType;
     }
@@ -302,6 +311,12 @@ public final class CookieController {
         if (rushType == null || !rushType.equals(detectActiveCookie(client))) {
             return;
         }
+        sendRushRestore(client, previous, rushType);
+    }
+
+    private static void sendRushRestore(Minecraft client, String previous, String rushType) {
+        rushLateFrom = null;
+        rushLateTarget = null;
         if (previous != null) {
             sendServerCommand(client, "cookie " + previous);
             lastUsedLabel = previous;
@@ -336,6 +351,8 @@ public final class CookieController {
 
     static void onChatMessage(Minecraft client, String message) {
         trackActiveCookie(message);
+        checkAfkDisableReply(client, message);
+        checkLateRushSwitch(client, message);
         if (client != null && client.player != null && client.player.connection != null && message != null) {
             BazzarConfig.State state = BazzarConfig.load();
             if (state.cookieAutoClaimAllOnGift && COOKIE_GIFT_PATTERN.matcher(message).find()) {
@@ -404,6 +421,94 @@ public final class CookieController {
         } else if (COOKIE_OFF_PATTERN.matcher(text).find()) {
             chatActiveCookie = null;
         }
+    }
+
+    // With high ping the server can apply the rush cookie after the rush already ended, so switch back
+    // as soon as that late confirmation comes in.
+    private static void checkLateRushSwitch(Minecraft client, String message) {
+        if (rushLateFrom == null || rushCookiePending || message == null
+                || client == null || client.player == null || client.player.connection == null) {
+            return;
+        }
+        if (System.currentTimeMillis() >= rushLateUntilMs) {
+            rushLateFrom = null;
+            rushLateTarget = null;
+            return;
+        }
+        var set = COOKIE_SET_PATTERN.matcher(SbText.stripFormattingCodes(message).trim());
+        if (!set.find() || !rushLateFrom.equals(normalizeCookieType(set.group(1)))) {
+            return;
+        }
+        if (COOKIE_SUSPICIOUS.equals(rushLateFrom) && isCelestialBoostActive(client)) {
+            rushLateFrom = null;
+            rushLateTarget = null;
+            return;
+        }
+        logRush("  -> " + rushLateFrom + " applied after the rush ended");
+        rushRestoreCheckAtMs = 0L;
+        rushRestoreTarget = null;
+        rushRestoreFrom = null;
+        sendRushRestore(client, rushLateTarget, rushLateFrom);
+    }
+
+    // The failsafe's /cookie can switch the cookie on instead of off (seen while AFK), so watch the reply
+    // and send it once more if that happens.
+    private static void checkAfkDisableReply(Minecraft client, String message) {
+        if (afkDisableType == null || message == null || client == null || client.player == null) {
+            return;
+        }
+        String text = SbText.stripFormattingCodes(message).trim();
+        if (COOKIE_OFF_PATTERN.matcher(text).find()) {
+            afkDisableType = null;
+            client.player.displayClientMessage(
+                    prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")),
+                    false
+            );
+            return;
+        }
+        if (!COOKIE_SET_PATTERN.matcher(text).find()) {
+            return;
+        }
+        if (!afkDisableRetried && client.player.connection != null) {
+            afkDisableRetried = true;
+            afkDisableSentMs = System.currentTimeMillis();
+            sendServerCommand(client, "cookie " + afkDisableType);
+            return;
+        }
+        afkDisableType = null;
+        client.player.displayClientMessage(
+                prefix().append(Component.literal("AFK for 3 min, couldn't disable your cookie. Turn it off in /cookie.")),
+                false
+        );
+    }
+
+    // No chat reply in time, so go by the cookie bossbar instead.
+    private static void checkAfkDisableBossbar(Minecraft client, long now) {
+        String running = detectActiveCookieFromBossbar(client);
+        if (running == null) {
+            afkDisableType = null;
+            // The cookie bossbar can be hidden during a celestial boost, so an empty bossbar proves nothing then.
+            if (isCelestialBoostActive(client)) {
+                return;
+            }
+            client.player.displayClientMessage(
+                    prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")),
+                    false
+            );
+            return;
+        }
+        if (!afkDisableRetried) {
+            afkDisableRetried = true;
+            afkDisableType = running;
+            afkDisableSentMs = now;
+            sendServerCommand(client, "cookie " + running);
+            return;
+        }
+        afkDisableType = null;
+        client.player.displayClientMessage(
+                prefix().append(Component.literal("AFK for 3 min, couldn't disable your cookie. Turn it off in /cookie.")),
+                false
+        );
     }
 
     static String nextCookieTierDown(String current) {
@@ -637,15 +742,19 @@ public final class CookieController {
         }
         checkRushRestore(client, now);
 
+        if (afkDisableType != null && now - afkDisableSentMs >= AFK_DISABLE_REPLY_MS) {
+            checkAfkDisableBossbar(client, now);
+        }
+
         boolean afk = updateAfkState(client, now);
         if (state.cookieAfkFailsafeEnabled && afk) {
             if (!afkCookieDisabled) {
                 afkCookieDisabled = true;
+                String activeCookie = detectActiveCookie(client);
                 if (disableActiveCookie(client)) {
-                    client.player.displayClientMessage(
-                            prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")),
-                            false
-                    );
+                    afkDisableType = activeCookie;
+                    afkDisableSentMs = now;
+                    afkDisableRetried = false;
                 }
             }
 
@@ -705,17 +814,19 @@ public final class CookieController {
         }
     }
 
+    // Only the player's own input counts, so getting launched or knocked around while AFK doesn't reset it.
     private static boolean updateAfkState(Minecraft client, long now) {
         var player = client.player;
-        boolean moved = player.getX() != lastActivityX
-                || player.getY() != lastActivityY
-                || player.getZ() != lastActivityZ
-                || player.getYRot() != lastActivityYaw
-                || player.getXRot() != lastActivityPitch;
+        var options = client.options;
+        boolean moved = player.getYRot() != lastActivityYaw
+                || player.getXRot() != lastActivityPitch
+                || options.keyUp.isDown()
+                || options.keyDown.isDown()
+                || options.keyLeft.isDown()
+                || options.keyRight.isDown()
+                || options.keyJump.isDown()
+                || options.keyShift.isDown();
         if (moved || lastActivityMs == 0L) {
-            lastActivityX = player.getX();
-            lastActivityY = player.getY();
-            lastActivityZ = player.getZ();
             lastActivityYaw = player.getYRot();
             lastActivityPitch = player.getXRot();
             lastActivityMs = now;
