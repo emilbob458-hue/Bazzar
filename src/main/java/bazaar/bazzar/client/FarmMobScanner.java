@@ -35,6 +35,12 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
 final class FarmMobScanner {
+    private enum Phase {
+        REWIND,
+        READ,
+        RETURN
+    }
+
     private enum State {
         IDLE,
         WAIT_FOR_OPEN,
@@ -49,6 +55,7 @@ final class FarmMobScanner {
         String drop;
         String mobJson;
         String dropJson;
+        List<String> tooltip;
         transient Component mobLine;
         transient Component dropLine;
         transient boolean decoded;
@@ -85,18 +92,19 @@ final class FarmMobScanner {
     private static final String WARP_COMMAND = "warpfarm";
     private static final String MENU_TITLE = "warp to crop";
     private static final int SETTLE_TICKS = 4;
-    private static final int TIMEOUT_TICKS = 200;
+    private static final int TIMEOUT_TICKS = 400;
     private static final int PAGE_TIMEOUT_TICKS = 40;
     private static final int MAX_PAGES = 6;
     private static final Pattern PAGE_PATTERN = Pattern.compile("\\((\\d+)\\s*/\\s*(\\d+)\\)");
     private static final Pattern MOB_PATTERN = Pattern.compile("^mob\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern STAT_PATTERN = Pattern.compile("^([A-Za-z][A-Za-z '\\-]*?)\\s*:\\s*\\S");
+    private static final Pattern STAT_PATTERN = Pattern.compile("^([A-Za-z][A-Za-z0-9 '\\-]*?)\\s*:");
     private static final Set<String> NOT_DROPS = Set.of("health", "blood", "xp", "exp", "value");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path DATA_PATH = Path.of(System.getProperty("user.home"), ".bazzar", "farm_mobs.json");
 
     private static Data cached;
     private static State state = State.IDLE;
+    private static Phase phase = Phase.REWIND;
     private static int waitTicks = 0;
     private static int timeoutTicks = 0;
     private static int pagesRead = 0;
@@ -150,6 +158,7 @@ final class FarmMobScanner {
         waitTicks = 0;
         timeoutTicks = 0;
         reopenWarpScreen = reopenAfter;
+        phase = Phase.REWIND;
         state = State.WAIT_FOR_OPEN;
         if (client.screen != null) {
             pendingOpen = true;
@@ -190,11 +199,23 @@ final class FarmMobScanner {
                 if (waitTicks < SETTLE_TICKS || !hasFarmItems(client, screen)) {
                     return;
                 }
+                lastPageSignature = pageSignature(screen);
+                if (phase != Phase.READ) {
+                    if (!isFirstPage(screen) && clickPreviousPage(client, screen)) {
+                        waitTicks = 0;
+                        state = State.WAIT_FOR_PAGE;
+                        return;
+                    }
+                    if (phase == Phase.RETURN) {
+                        state = State.CLOSE;
+                        return;
+                    }
+                    phase = Phase.READ;
+                }
                 readPage(client, screen);
                 pagesRead++;
-                lastPageSignature = pageSignature(screen);
                 if (pagesRead >= MAX_PAGES || isLastPage(screen) || !clickNextPage(client, screen)) {
-                    state = State.CLOSE;
+                    phase = Phase.RETURN;
                 } else {
                     waitTicks = 0;
                     state = State.WAIT_FOR_PAGE;
@@ -206,7 +227,13 @@ final class FarmMobScanner {
                     waitTicks = 0;
                     state = State.WAIT_FOR_ITEMS;
                 } else if (++waitTicks > PAGE_TIMEOUT_TICKS) {
-                    state = State.CLOSE;
+                    if (phase == Phase.REWIND && screen != null) {
+                        phase = Phase.READ;
+                        waitTicks = 0;
+                        state = State.WAIT_FOR_ITEMS;
+                    } else {
+                        state = State.CLOSE;
+                    }
                 }
             }
             case CLOSE -> finish(client);
@@ -284,6 +311,7 @@ final class FarmMobScanner {
         String drop = null;
         Component mobLine = null;
         Component dropLine = null;
+        boolean sawStat = false;
         for (Component component : lines) {
             String raw = component.getString();
             String stripped = stripLeadingSymbols(clean(raw));
@@ -300,12 +328,16 @@ final class FarmMobScanner {
                 continue;
             }
             if (stripped.isEmpty()) {
-                break;
+                if (sawStat) {
+                    break;
+                }
+                continue;
             }
             Matcher matcher = STAT_PATTERN.matcher(stripped);
             if (!matcher.find()) {
                 continue;
             }
+            sawStat = true;
             String label = matcher.group(1).trim();
             String lower = label.toLowerCase(Locale.ROOT);
             if (lower.equals("value")) {
@@ -337,6 +369,12 @@ final class FarmMobScanner {
         info.drop = drop;
         info.mobLine = mobLine;
         info.dropLine = dropLine;
+        if (drop == null) {
+            info.tooltip = new ArrayList<>();
+            for (Component line : lines) {
+                info.tooltip.add(clean(line.getString()));
+            }
+        }
         return info;
     }
 
@@ -409,6 +447,41 @@ final class FarmMobScanner {
     private static boolean isLastPage(AbstractContainerScreen<?> screen) {
         Matcher matcher = PAGE_PATTERN.matcher(clean(screen.getTitle().getString()));
         return matcher.find() && Integer.parseInt(matcher.group(1)) >= Integer.parseInt(matcher.group(2));
+    }
+
+    private static boolean isFirstPage(AbstractContainerScreen<?> screen) {
+        Matcher matcher = PAGE_PATTERN.matcher(clean(screen.getTitle().getString()));
+        return matcher.find() && Integer.parseInt(matcher.group(1)) <= 1;
+    }
+
+    private static boolean clickPreviousPage(Minecraft client, AbstractContainerScreen<?> screen) {
+        if (client.gameMode == null || client.player == null) {
+            return false;
+        }
+        Matcher page = PAGE_PATTERN.matcher(clean(screen.getTitle().getString()));
+        boolean pastFirst = page.find() && Integer.parseInt(page.group(1)) > 1;
+        AbstractContainerMenu menu = screen.getMenu();
+        int arrowIndex = -1;
+        for (int i = 0; i < menu.slots.size(); i++) {
+            Slot slot = menu.slots.get(i);
+            ItemStack stack = slot.getItem();
+            if (slot.container instanceof Inventory || stack.isEmpty() || parse(client, stack) != null) {
+                continue;
+            }
+            String name = clean(stack.getHoverName().getString()).toLowerCase(Locale.ROOT);
+            if (name.contains("previous") || name.contains("prev page")) {
+                arrowIndex = i;
+                break;
+            }
+            if (pastFirst && arrowIndex < 0 && !name.contains("next") && (stack.is(Items.ARROW) || stack.is(Items.SPECTRAL_ARROW))) {
+                arrowIndex = i;
+            }
+        }
+        if (arrowIndex < 0) {
+            return false;
+        }
+        client.gameMode.handleInventoryMouseClick(menu.containerId, arrowIndex, 0, ClickType.PICKUP, client.player);
+        return true;
     }
 
     private static boolean clickNextPage(Minecraft client, AbstractContainerScreen<?> screen) {

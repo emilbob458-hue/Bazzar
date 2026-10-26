@@ -19,7 +19,7 @@ final class SbText {
     static final Pattern TIMER_AMOUNT_PATTERN = Pattern.compile("(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*\\(\\d{1,2}:\\d{2}\\)");
     private static final Pattern DURATION_PATTERN =
             Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(hours?|minutes?|seconds?)\\b");
-    private static final Pattern SPRITE_PATTERN = Pattern.compile("\\[[a-z0-9_./-]+@[a-z0-9_./-]+\\]");
+    private static final Pattern SPRITE_PATTERN = Pattern.compile("\\[(?:[a-z0-9_.:/-]+@[a-z0-9_.:/-]+|[a-z0-9_.:-]+/[a-z0-9_./-]+)\\]");
 
     private SbText() {
     }
