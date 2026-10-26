@@ -1,16 +1,11 @@
 package bazaar.bazzar.client;
 
-import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
-import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
-
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -29,66 +24,33 @@ final class ShardPayoutController {
     private ShardPayoutController() {
     }
 
-    static void registerCommands() {
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
-                literal("setshard")
-                        .requires(source -> !BazzarGuard.isBlocked())
-                        .executes(ShardPayoutController::runStatus)
-                        .then(literal("on").executes(ctx -> runToggle(ctx, true)))
-                        .then(literal("off").executes(ctx -> runToggle(ctx, false)))
-                        .then(argument("price", StringArgumentType.greedyString())
-                                .executes(ShardPayoutController::runSetPrice))));
-    }
-
-    private static int runStatus(CommandContext<FabricClientCommandSource> context) {
+    static int runStatus(CommandContext<FabricClientCommandSource> context) {
         BazzarConfig.State state = BazzarConfig.load();
-        String priceText = state.shardPayoutPrice > 0.0d ? SbText.formatCompact(state.shardPayoutPrice) : "not set";
+        String priceText = state.shardPrice > 0.0d ? SbText.formatCompact(state.shardPrice) : "not set";
         context.getSource().sendFeedback(prefix()
                 .append(Component.literal("Shard auto pay: ").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(state.shardPayoutEnabled ? "ON" : "OFF")
                         .withStyle(state.shardPayoutEnabled ? ChatFormatting.GREEN : ChatFormatting.RED))
                 .append(Component.literal("  price/shard: ").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(priceText).withStyle(ChatFormatting.GOLD))
-                .append(Component.literal("  (/setshard <price>, /setshard on|off)").withStyle(ChatFormatting.DARK_GRAY)));
+                .append(Component.literal("  (/setshardprice <price>, /setshardprice on|off)").withStyle(ChatFormatting.DARK_GRAY)));
         return 1;
     }
 
-    private static int runToggle(CommandContext<FabricClientCommandSource> context, boolean enable) {
+    static int runToggle(CommandContext<FabricClientCommandSource> context, boolean enable) {
         BazzarConfig.State state = BazzarConfig.load();
-        if (enable && state.shardPayoutPrice <= 0.0d) {
+        if (enable && state.shardPrice <= 0.0d) {
             context.getSource().sendFeedback(prefix()
-                    .append(Component.literal("Set a price first: /setshard <price>").withStyle(ChatFormatting.RED)));
+                    .append(Component.literal("Set a price first: /setshardprice <price>").withStyle(ChatFormatting.RED)));
             return 0;
         }
         state.shardPayoutEnabled = enable;
         BazzarConfig.save(state);
         context.getSource().sendFeedback(prefix()
                 .append(Component.literal(enable
-                        ? "Shard auto pay ON, paying " + SbText.formatCompact(state.shardPayoutPrice) + " per shard received."
+                        ? "Shard auto pay ON, paying " + SbText.formatCompact(state.shardPrice) + " per shard received."
                         : "Shard auto pay OFF.")
                         .withStyle(enable ? ChatFormatting.GREEN : ChatFormatting.YELLOW)));
-        return 1;
-    }
-
-    private static int runSetPrice(CommandContext<FabricClientCommandSource> context) {
-        String raw = StringArgumentType.getString(context, "price");
-        Double parsed = parseCompactNumber(raw);
-        if (parsed == null || parsed <= 0.0d) {
-            context.getSource().sendFeedback(prefix()
-                    .append(Component.literal("Invalid price. Use number/k/m/b/t.").withStyle(ChatFormatting.RED)));
-            return 0;
-        }
-        BazzarConfig.State state = BazzarConfig.load();
-        state.shardPayoutPrice = parsed;
-        BazzarConfig.save(state);
-        MutableComponent feedback = prefix()
-                .append(Component.literal("Shard price set to ").withStyle(ChatFormatting.GREEN))
-                .append(Component.literal(SbText.formatCompact(parsed)).withStyle(ChatFormatting.GOLD))
-                .append(Component.literal(" per shard.").withStyle(ChatFormatting.GREEN));
-        if (!state.shardPayoutEnabled) {
-            feedback.append(Component.literal(" Auto pay is OFF, enable with /setshard on").withStyle(ChatFormatting.YELLOW));
-        }
-        context.getSource().sendFeedback(feedback);
         return 1;
     }
 
@@ -97,7 +59,7 @@ final class ShardPayoutController {
             return;
         }
         BazzarConfig.State state = BazzarConfig.load();
-        if (state == null || !state.shardPayoutEnabled || state.shardPayoutPrice <= 0.0d) {
+        if (state == null || !state.shardPayoutEnabled || state.shardPrice <= 0.0d) {
             return;
         }
         Parsed parsed = parseReceive(SbText.stripSprites(message));
@@ -111,7 +73,7 @@ final class ShardPayoutController {
         if (isOwnAccount(state, parsed.sender)) {
             return;
         }
-        double total = parsed.amount * state.shardPayoutPrice;
+        double total = parsed.amount * state.shardPrice;
         String amountText = formatPayAmount(total);
         PayoutQueue.enqueue(client, "shard", parsed.sender, parsed.amount, total, amountText);
     }

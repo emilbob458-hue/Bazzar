@@ -49,6 +49,9 @@ final class ShardCalculator {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             dispatcher.register(literal("setshardprice")
                     .requires(source -> !BazzarGuard.isBlocked())
+                    .executes(ShardPayoutController::runStatus)
+                    .then(literal("on").executes(ctx -> ShardPayoutController.runToggle(ctx, true)))
+                    .then(literal("off").executes(ctx -> ShardPayoutController.runToggle(ctx, false)))
                     .then(argument("price", StringArgumentType.greedyString())
                             .executes(ShardCalculator::runSetShardPrice)));
             dispatcher.register(literal("setmulti")
@@ -95,7 +98,16 @@ final class ShardCalculator {
     }
 
     private static int runSetShardPrice(CommandContext<FabricClientCommandSource> context) {
-        String raw = StringArgumentType.getString(context, "price");
+        String raw = StringArgumentType.getString(context, "price").trim();
+        Boolean toggle = null;
+        String lower = raw.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(" on")) {
+            toggle = true;
+            raw = raw.substring(0, raw.length() - 3);
+        } else if (lower.endsWith(" off")) {
+            toggle = false;
+            raw = raw.substring(0, raw.length() - 4);
+        }
         Double parsed = parseCompactNumber(raw);
         if (parsed == null || parsed < 0.0d) {
             context.getSource().sendFeedback(prefix().append(Component.literal("Invalid price. Use number/k/m/b/t.")
@@ -107,9 +119,16 @@ final class ShardCalculator {
         state.shardPrice = parsed;
         BazzarConfig.save(state);
 
-        context.getSource().sendFeedback(prefix().append(Component.literal("Shard price set to ")
+        MutableComponent feedback = prefix().append(Component.literal("Shard price set to ")
                 .withStyle(ChatFormatting.GREEN))
-                .append(Component.literal(format(parsed)).withStyle(ChatFormatting.GOLD)));
+                .append(Component.literal(format(parsed)).withStyle(ChatFormatting.GOLD));
+        if (toggle == null && !state.shardPayoutEnabled) {
+            feedback.append(Component.literal(" Shard auto pay is OFF, enable with /setshardprice on").withStyle(ChatFormatting.YELLOW));
+        }
+        context.getSource().sendFeedback(feedback);
+        if (toggle != null) {
+            return ShardPayoutController.runToggle(context, toggle);
+        }
         return 1;
     }
 

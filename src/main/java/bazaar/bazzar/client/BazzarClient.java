@@ -42,7 +42,6 @@ public class BazzarClient implements ClientModInitializer {
         CookieController.registerCommands();
         AltCommandController.registerCommands();
         CobblePayoutController.registerCommands();
-        ShardPayoutController.registerCommands();
         ConfigPresets.registerCommands();
         AutoUpdater.registerCommands();
         UsageStats.registerCommands();

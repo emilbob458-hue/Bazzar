@@ -269,6 +269,10 @@ final class BazzarConfig {
         if (loaded.celestialRewardReadyAt == null) {
             loaded.celestialRewardReadyAt = new HashMap<>();
         }
+        if (loaded.shardPayoutPrice > 0.0d) {
+            loaded.shardPrice = loaded.shardPayoutPrice;
+            loaded.shardPayoutPrice = 0.0d;
+        }
         return loaded;
     }
 
