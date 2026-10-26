@@ -16,6 +16,7 @@ final class ShardPayController {
 
     private static final long CHECK_INTERVAL_MS = 30_000L;
     private static final long PAY_COOLDOWN_MS = 180_000L;
+    private static final double MIN_AUTO_PAY = 5.0d;
     private static final int PAY_GAP_TICKS = 60;
     private static final int PAY_GAP_JITTER_TICKS = 20;
     private static final long ALT_LINE_DEDUPE_MS = 1_500L;
@@ -204,20 +205,20 @@ final class ShardPayController {
             scoreboardFailStreak = 0;
         }
         boolean queued = false;
-        if (shards >= 1.0d) {
+        if (shards >= MIN_AUTO_PAY) {
             payQueue.addLast("shardpay " + formatAmount(shards) + " " + target);
             queued = true;
         }
         if (state.cobblePayEnabled) {
             double cobble = cobbleFromLines(lines);
-            if (cobble >= 1.0d) {
+            if (cobble >= MIN_AUTO_PAY) {
                 payQueue.addLast("cobblepay " + formatWhole(cobble) + " " + target);
                 queued = true;
             }
         }
         if (state.gemPayEnabled) {
             double gems = gemsFromLines(lines);
-            if (gems >= 1.0d) {
+            if (gems >= MIN_AUTO_PAY) {
                 payQueue.addLast("gempay " + formatWhole(gems) + " " + target);
                 queued = true;
             }
