@@ -123,6 +123,9 @@ final class BazzarConfig {
         if (state.celestialBoosterReadyAt == null) {
             state.celestialBoosterReadyAt = new HashMap<>();
         }
+        if (state.celestialRewardReadyAt == null) {
+            state.celestialRewardReadyAt = new HashMap<>();
+        }
         if (state.autoBazaarScanIntervalSeconds < 15) {
             state.autoBazaarScanIntervalSeconds = 15;
         } else if (state.autoBazaarScanIntervalSeconds > 3600) {
@@ -263,6 +266,9 @@ final class BazzarConfig {
         if (loaded.celestialBoosterReadyAt == null) {
             loaded.celestialBoosterReadyAt = new HashMap<>();
         }
+        if (loaded.celestialRewardReadyAt == null) {
+            loaded.celestialRewardReadyAt = new HashMap<>();
+        }
         return loaded;
     }
 
@@ -344,6 +350,8 @@ final class BazzarConfig {
         boolean gemPayEnabled = true;
         Map<String, Long> celestialBoosterReadyAt = new HashMap<>();
         boolean playtimeClaimEnabled = true;
+        boolean celestialClaimEnabled = true;
+        Map<String, Long> celestialRewardReadyAt = new HashMap<>();
         boolean altHudEnabled = true;
         int altHudX = 6;
         int altHudY = 230;

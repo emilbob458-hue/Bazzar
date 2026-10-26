@@ -1091,6 +1091,17 @@ final class BazaarTrackerScreen extends Screen {
                 mouseX,
                 mouseY
         );
+        drawSettingRow(
+                graphics,
+                contentX,
+                settingsTop() + 5 * miscRowStep(),
+                "Auto Celestial Reward",
+                "Claim the /rewards celestial reward when it's ready",
+                miscCelestialToggleButton(),
+                CelestialRewardsController.isEnabled(),
+                mouseX,
+                mouseY
+        );
         drawGradientSlider(
                 graphics,
                 miscDumpSliderBounds(),
@@ -2075,6 +2086,7 @@ final class BazaarTrackerScreen extends Screen {
                 state.scoreboardGlowEnabled = true;
                 state.profitHudEnabled = true;
                 state.playtimeClaimEnabled = true;
+                state.celestialClaimEnabled = true;
                 state.autoDumpEnabled = false;
                 state.autoDumpPvPage = 1;
                 BazzarConfig.save(state);
@@ -2496,6 +2508,12 @@ final class BazaarTrackerScreen extends Screen {
             statusText = enabled ? "Auto playtime rewards enabled." : "Auto playtime rewards disabled.";
             return true;
         }
+        if (isInside(mouseX, mouseY, miscCelestialToggleButton())) {
+            boolean enabled = !CelestialRewardsController.isEnabled();
+            CelestialRewardsController.setEnabled(enabled);
+            statusText = enabled ? "Auto celestial reward enabled." : "Auto celestial reward disabled.";
+            return true;
+        }
         if (isInside(mouseX, mouseY, miscDumpToggleButton())) {
             BazzarConfig.State state = BazzarConfig.load();
             state.autoDumpEnabled = !state.autoDumpEnabled;
@@ -2818,6 +2836,10 @@ final class BazaarTrackerScreen extends Screen {
 
     private ButtonBounds miscDumpToggleButton() {
         return new ButtonBounds(contentRight() - 32, settingsTop() + 4 * miscRowStep() + 3, 32, 14);
+    }
+
+    private ButtonBounds miscCelestialToggleButton() {
+        return new ButtonBounds(contentRight() - 32, settingsTop() + 5 * miscRowStep() + 3, 32, 14);
     }
 
     private ButtonBounds miscDumpSliderBounds() {

@@ -148,6 +148,7 @@ public class BazzarClient implements ClientModInitializer {
             AltCommandController.tick(client);
             SessionProfitHud.tick(client);
             PlaytimeRewardsController.tick(client);
+            CelestialRewardsController.tick(client);
             CelestialBoosterReminder.tick(client);
             PvScanner.tick(client);
             AutoDumpController.tick(client);
