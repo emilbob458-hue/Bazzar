@@ -2,6 +2,8 @@ package bazaar.bazzar.client;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,10 +17,16 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.mojang.serialization.JsonOps;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentContents;
+import net.minecraft.network.chat.ComponentSerialization;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.contents.PlainTextContents;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
@@ -39,6 +47,34 @@ final class FarmMobScanner {
         String crop;
         String mob;
         String drop;
+        String mobJson;
+        String dropJson;
+        transient Component mobLine;
+        transient Component dropLine;
+        transient boolean decoded;
+
+        Component mobText() {
+            decode();
+            return mobLine;
+        }
+
+        Component dropText() {
+            decode();
+            return dropLine;
+        }
+
+        private void decode() {
+            if (decoded) {
+                return;
+            }
+            Minecraft client = Minecraft.getInstance();
+            if (client.level == null) {
+                return;
+            }
+            decoded = true;
+            mobLine = fromJson(client, mobJson);
+            dropLine = fromJson(client, dropJson);
+        }
     }
 
     static final class Data {
@@ -233,21 +269,33 @@ final class FarmMobScanner {
             }
             MobInfo info = parse(client, slot.getItem());
             if (info != null) {
+                info.mobJson = toJson(client, info.mobLine);
+                info.dropJson = toJson(client, info.dropLine);
+                info.mobLine = null;
+                info.dropLine = null;
                 collected.put(key(info.crop), info);
             }
         }
     }
 
     private static MobInfo parse(Minecraft client, ItemStack stack) {
-        List<String> lines = tooltipLines(client, stack);
+        List<Component> lines = tooltipComponents(client, stack);
         String mob = null;
         String drop = null;
-        for (String line : lines) {
-            String stripped = stripLeadingSymbols(line);
+        Component mobLine = null;
+        Component dropLine = null;
+        for (Component component : lines) {
+            String raw = component.getString();
+            String stripped = stripLeadingSymbols(clean(raw));
             if (mob == null) {
                 Matcher matcher = MOB_PATTERN.matcher(stripped);
                 if (matcher.find()) {
                     mob = stripLeadingSymbols(matcher.group(1).replaceAll("[^A-Za-z0-9 '\\-]", " ")).trim().replaceAll("\\s+", " ");
+                    int open = raw.indexOf('(');
+                    int close = raw.lastIndexOf(')');
+                    if (open >= 0 && close > open) {
+                        mobLine = sliceTrimmed(component, raw, open + 1, close);
+                    }
                 }
                 continue;
             }
@@ -265,6 +313,14 @@ final class FarmMobScanner {
             }
             if (!NOT_DROPS.contains(lower)) {
                 drop = label;
+                int start = 0;
+                while (start < raw.length() && (Character.isWhitespace(raw.charAt(start)) || "|│┃¦".indexOf(raw.charAt(start)) >= 0)) {
+                    start++;
+                }
+                int end = raw.indexOf(':', Math.max(start, raw.indexOf(label)));
+                if (end > start) {
+                    dropLine = sliceTrimmed(component, raw, start, end);
+                }
                 break;
             }
         }
@@ -279,7 +335,75 @@ final class FarmMobScanner {
         info.crop = crop;
         info.mob = mob;
         info.drop = drop;
+        info.mobLine = mobLine;
+        info.dropLine = dropLine;
         return info;
+    }
+
+    private static Component sliceTrimmed(Component line, String raw, int from, int to) {
+        while (from < to && Character.isWhitespace(raw.charAt(from))) {
+            from++;
+        }
+        while (to > from && Character.isWhitespace(raw.charAt(to - 1))) {
+            to--;
+        }
+        if (from >= to) {
+            return null;
+        }
+        MutableComponent out = Component.empty();
+        appendSlice(line, Style.EMPTY, from, to, new int[]{0}, out);
+        return out;
+    }
+
+    private static void appendSlice(Component node, Style parent, int from, int to, int[] pos, MutableComponent out) {
+        Style style = node.getStyle().applyTo(parent);
+        ComponentContents contents = node.getContents();
+        int start = pos[0];
+        if (contents instanceof PlainTextContents plain) {
+            String text = plain.text();
+            int a = Math.max(from, start);
+            int b = Math.min(to, start + text.length());
+            if (a < b) {
+                out.append(Component.literal(text.substring(a - start, b - start)).withStyle(style));
+            }
+            pos[0] = start + text.length();
+        } else {
+            MutableComponent atom = MutableComponent.create(contents);
+            int length = atom.getString().length();
+            if (start >= from && start + length <= to && (length > 0 || start < to)) {
+                out.append(atom.withStyle(style));
+            }
+            pos[0] = start + length;
+        }
+        for (Component sibling : node.getSiblings()) {
+            appendSlice(sibling, style, from, to, pos, out);
+        }
+    }
+
+    private static String toJson(Minecraft client, Component component) {
+        if (component == null || client.level == null) {
+            return null;
+        }
+        try {
+            return ComponentSerialization.CODEC
+                    .encodeStart(client.level.registryAccess().createSerializationContext(JsonOps.INSTANCE), component)
+                    .result().map(JsonElement::toString).orElse(null);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Component fromJson(Minecraft client, String json) {
+        if (json == null || json.isBlank() || client.level == null) {
+            return null;
+        }
+        try {
+            return ComponentSerialization.CODEC
+                    .parse(client.level.registryAccess().createSerializationContext(JsonOps.INSTANCE), JsonParser.parseString(json))
+                    .result().orElse(null);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private static boolean isLastPage(AbstractContainerScreen<?> screen) {
@@ -335,8 +459,8 @@ final class FarmMobScanner {
         return signature.toString();
     }
 
-    private static List<String> tooltipLines(Minecraft client, ItemStack stack) {
-        List<String> lines = new ArrayList<>();
+    private static List<Component> tooltipComponents(Minecraft client, ItemStack stack) {
+        List<Component> lines = new ArrayList<>();
         try {
             List<Component> tooltip = stack.getTooltipLines(
                     net.minecraft.world.item.Item.TooltipContext.of(client.level),
@@ -345,7 +469,7 @@ final class FarmMobScanner {
             );
             for (Component part : tooltip) {
                 if (part != null) {
-                    lines.add(clean(part.getString()));
+                    lines.add(part);
                 }
             }
         } catch (Exception ignored) {

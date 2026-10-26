@@ -305,8 +305,11 @@ final class FarmWarpScreen extends Screen {
             return List.of();
         }
         List<Component> lines = new ArrayList<>();
-        lines.add(Component.literal("Mob: ").withColor(0x8E97A6).append(Component.literal(info.mob).withColor(0xFFFFFF)));
-        if (info.drop != null && !info.drop.isBlank()) {
+        Component mob = info.mobText() != null ? info.mobText() : Component.literal(info.mob).withColor(0xFFFFFF);
+        lines.add(Component.literal("Mob: ").withColor(0x8E97A6).append(mob));
+        if (info.dropText() != null) {
+            lines.add(Component.literal("Drop: ").withColor(0x8E97A6).append(info.dropText()));
+        } else if (info.drop != null && !info.drop.isBlank()) {
             lines.add(Component.literal("Drop: ").withColor(0x8E97A6).append(Component.literal(info.drop).withColor(0xFFD75A)));
         }
         return lines;
