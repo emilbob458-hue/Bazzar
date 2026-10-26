@@ -17,6 +17,7 @@ final class PlaytimeRewardsController {
     private static final long COOLDOWN_MS = 60_000L;
     private static final int CLICK_SPACING_TICKS = 6;
     private static final int IDLE_CLOSE_SCANS = 40;
+    private static final int CLAIMED_CLOSE_SCANS = 10;
     private static final String GUI_TITLE_FRAGMENT = "playtime rewards";
 
     private static long lastTriggerMs = 0L;
@@ -24,6 +25,7 @@ final class PlaytimeRewardsController {
     private static long autoOpenedAtMs = 0L;
     private static int clickCooldown = 0;
     private static int idleScans = 0;
+    private static boolean claimedAny = false;
 
     private PlaytimeRewardsController() {
     }
@@ -80,6 +82,7 @@ final class PlaytimeRewardsController {
                 autoOpened = false;
             }
             idleScans = 0;
+            claimedAny = false;
             return;
         }
         if (clickCooldown > 0) {
@@ -91,11 +94,13 @@ final class PlaytimeRewardsController {
             client.gameMode.handleInventoryMouseClick(screen.getMenu().containerId, slot, 0, ClickType.PICKUP, client.player);
             clickCooldown = CLICK_SPACING_TICKS;
             idleScans = 0;
+            claimedAny = true;
             return;
         }
         idleScans++;
-        if (autoOpened && idleScans > IDLE_CLOSE_SCANS) {
+        if ((claimedAny && idleScans > CLAIMED_CLOSE_SCANS) || (autoOpened && idleScans > IDLE_CLOSE_SCANS)) {
             autoOpened = false;
+            claimedAny = false;
             idleScans = 0;
             client.setScreen(null);
         }
