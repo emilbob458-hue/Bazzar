@@ -199,6 +199,16 @@ final class FarmWarpScreen extends Screen {
                 farm("Glowstone", "farm glowstone", new ItemStack(Items.GLOWSTONE)),
                 farm("Honeycomb", "farm honeycomb", new ItemStack(Items.HONEYCOMB_BLOCK))
         ));
+        worldCrops.put(WorldTab.WORLD_5, List.of(
+                farm("Red Paint", "farm redpaint", new ItemStack(Items.RED_DYE)),
+                farm("Blue Paint", "farm bluepaint", new ItemStack(Items.BLUE_DYE)),
+                farm("Green Paint", "farm greenpaint", new ItemStack(Items.GREEN_DYE)),
+                farm("Purple Paint", "farm purplepaint", new ItemStack(Items.PURPLE_DYE)),
+                farm("Magenta Paint", "farm magentapaint", new ItemStack(Items.MAGENTA_DYE)),
+                farm("Brown Paint", "farm brownpaint", new ItemStack(Items.BROWN_DYE)),
+                farm("Pink Paint", "farm pinkpaint", new ItemStack(Items.PINK_DYE)),
+                farm("Black Paint", "farm blackpaint", new ItemStack(Items.BLACK_DYE))
+        ));
     }
 
     @Override
@@ -411,7 +421,8 @@ final class FarmWarpScreen extends Screen {
         OVERWORLD("Overworld", "warp overworld", 0x26AC09, 0x99A524),
         WORLD_2("Frostcastle", "warp frostcastle", 0x1EF5DA, 0x2437A5),
         WORLD_3("Swamp", "warp swamp", 0x6A8F3A, 0x2E5E4E),
-        WORLD_4("Honey", "warp honey", 0xFFC42E, 0xE3801A);
+        WORLD_4("Honey", "warp honey", 0xFFC42E, 0xE3801A),
+        WORLD_5("Library", "warps library", 0xE0457B, 0x5B6CFF);
 
         final String displayName;
         final String warpCommand;
