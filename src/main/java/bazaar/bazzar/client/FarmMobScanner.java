@@ -1,0 +1,410 @@
+package bazaar.bazzar.client;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonSyntaxException;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+
+final class FarmMobScanner {
+    private enum State {
+        IDLE,
+        WAIT_FOR_OPEN,
+        WAIT_FOR_ITEMS,
+        WAIT_FOR_PAGE,
+        CLOSE
+    }
+
+    static final class MobInfo {
+        String crop;
+        String mob;
+        String drop;
+    }
+
+    static final class Data {
+        Map<String, MobInfo> farms = new LinkedHashMap<>();
+        long scannedMs;
+    }
+
+    private static final String WARP_COMMAND = "warpfarm";
+    private static final String MENU_TITLE = "warp to crop";
+    private static final int SETTLE_TICKS = 4;
+    private static final int TIMEOUT_TICKS = 200;
+    private static final int PAGE_TIMEOUT_TICKS = 40;
+    private static final int MAX_PAGES = 6;
+    private static final Pattern PAGE_PATTERN = Pattern.compile("\\((\\d+)\\s*/\\s*(\\d+)\\)");
+    private static final Pattern MOB_PATTERN = Pattern.compile("^mob\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern STAT_PATTERN = Pattern.compile("^([A-Za-z][A-Za-z '\\-]*?)\\s*:\\s*\\S");
+    private static final Set<String> NOT_DROPS = Set.of("health", "blood", "xp", "exp", "value");
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Path DATA_PATH = Path.of(System.getProperty("user.home"), ".bazzar", "farm_mobs.json");
+
+    private static Data cached;
+    private static State state = State.IDLE;
+    private static int waitTicks = 0;
+    private static int timeoutTicks = 0;
+    private static int pagesRead = 0;
+    private static String lastPageSignature = "";
+    private static boolean pendingOpen = false;
+    private static boolean reopenWarpScreen = false;
+    private static boolean autoTried = false;
+    private static final Map<String, MobInfo> collected = new LinkedHashMap<>();
+
+    private FarmMobScanner() {
+    }
+
+    static MobInfo get(String cropName) {
+        String wanted = key(cropName);
+        Map<String, MobInfo> farms = data().farms;
+        MobInfo exact = farms.get(wanted);
+        if (exact != null || wanted.isEmpty()) {
+            return exact;
+        }
+        for (Map.Entry<String, MobInfo> entry : farms.entrySet()) {
+            if (entry.getKey().startsWith(wanted) || wanted.startsWith(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    static boolean hasData() {
+        return !data().farms.isEmpty();
+    }
+
+    static boolean isScanning() {
+        return state != State.IDLE;
+    }
+
+    static boolean shouldAutoScan() {
+        return !autoTried && !hasData() && !isScanning();
+    }
+
+    static boolean start(Minecraft client, boolean reopenAfter) {
+        if (state != State.IDLE || client.player == null || client.player.connection == null) {
+            return false;
+        }
+        if (client.getCurrentServer() == null) {
+            return false;
+        }
+        autoTried = true;
+        collected.clear();
+        pagesRead = 0;
+        lastPageSignature = "";
+        waitTicks = 0;
+        timeoutTicks = 0;
+        reopenWarpScreen = reopenAfter;
+        state = State.WAIT_FOR_OPEN;
+        if (client.screen != null) {
+            pendingOpen = true;
+            client.setScreen(null);
+        } else {
+            CommandSender.send(client, WARP_COMMAND);
+        }
+        return true;
+    }
+
+    static void tick(Minecraft client) {
+        if (state == State.IDLE || client.player == null) {
+            return;
+        }
+        timeoutTicks++;
+        if (timeoutTicks > TIMEOUT_TICKS) {
+            finish(client);
+            return;
+        }
+        if (pendingOpen && client.screen == null) {
+            pendingOpen = false;
+            CommandSender.send(client, WARP_COMMAND);
+        }
+
+        switch (state) {
+            case WAIT_FOR_OPEN -> {
+                if (menuScreen(client) != null) {
+                    waitTicks = 0;
+                    state = State.WAIT_FOR_ITEMS;
+                }
+            }
+            case WAIT_FOR_ITEMS -> {
+                AbstractContainerScreen<?> screen = menuScreen(client);
+                if (screen == null) {
+                    return;
+                }
+                waitTicks++;
+                if (waitTicks < SETTLE_TICKS || !hasFarmItems(client, screen)) {
+                    return;
+                }
+                readPage(client, screen);
+                pagesRead++;
+                lastPageSignature = pageSignature(screen);
+                if (pagesRead >= MAX_PAGES || isLastPage(screen) || !clickNextPage(client, screen)) {
+                    state = State.CLOSE;
+                } else {
+                    waitTicks = 0;
+                    state = State.WAIT_FOR_PAGE;
+                }
+            }
+            case WAIT_FOR_PAGE -> {
+                AbstractContainerScreen<?> screen = menuScreen(client);
+                if (screen != null && !pageSignature(screen).equals(lastPageSignature)) {
+                    waitTicks = 0;
+                    state = State.WAIT_FOR_ITEMS;
+                } else if (++waitTicks > PAGE_TIMEOUT_TICKS) {
+                    state = State.CLOSE;
+                }
+            }
+            case CLOSE -> finish(client);
+            default -> {
+            }
+        }
+    }
+
+    private static void finish(Minecraft client) {
+        boolean reopen = reopenWarpScreen;
+        if (!collected.isEmpty()) {
+            Data data = new Data();
+            data.farms.putAll(collected);
+            data.scannedMs = System.currentTimeMillis();
+            save(data);
+        }
+        if (client.player != null) {
+            String message = collected.isEmpty()
+                    ? "Could not read farm mobs from /" + WARP_COMMAND + "."
+                    : "Saved mobs for " + collected.size() + " farms.";
+            client.player.displayClientMessage(Component.literal("[Bazaar] " + message)
+                    .withStyle(collected.isEmpty() ? ChatFormatting.RED : ChatFormatting.AQUA), false);
+        }
+        state = State.IDLE;
+        waitTicks = 0;
+        timeoutTicks = 0;
+        pendingOpen = false;
+        reopenWarpScreen = false;
+        collected.clear();
+        if (menuScreen(client) != null) {
+            client.setScreen(null);
+        }
+        if (reopen && client.screen == null) {
+            client.setScreen(new FarmWarpScreen());
+        }
+    }
+
+    private static AbstractContainerScreen<?> menuScreen(Minecraft client) {
+        if (client.screen instanceof AbstractContainerScreen<?> screen
+                && clean(screen.getTitle().getString()).toLowerCase(Locale.ROOT).contains(MENU_TITLE)) {
+            return screen;
+        }
+        return null;
+    }
+
+    private static boolean hasFarmItems(Minecraft client, AbstractContainerScreen<?> screen) {
+        for (Slot slot : screen.getMenu().slots) {
+            if (!(slot.container instanceof Inventory) && !slot.getItem().isEmpty()
+                    && parse(client, slot.getItem()) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void readPage(Minecraft client, AbstractContainerScreen<?> screen) {
+        for (Slot slot : screen.getMenu().slots) {
+            if (slot.container instanceof Inventory || slot.getItem().isEmpty()) {
+                continue;
+            }
+            MobInfo info = parse(client, slot.getItem());
+            if (info != null) {
+                collected.put(key(info.crop), info);
+            }
+        }
+    }
+
+    private static MobInfo parse(Minecraft client, ItemStack stack) {
+        List<String> lines = tooltipLines(client, stack);
+        String mob = null;
+        String drop = null;
+        for (String line : lines) {
+            String stripped = stripLeadingSymbols(line);
+            if (mob == null) {
+                Matcher matcher = MOB_PATTERN.matcher(stripped);
+                if (matcher.find()) {
+                    mob = stripLeadingSymbols(matcher.group(1).replaceAll("[^A-Za-z0-9 '\\-]", " ")).trim().replaceAll("\\s+", " ");
+                }
+                continue;
+            }
+            if (stripped.isEmpty()) {
+                break;
+            }
+            Matcher matcher = STAT_PATTERN.matcher(stripped);
+            if (!matcher.find()) {
+                continue;
+            }
+            String label = matcher.group(1).trim();
+            String lower = label.toLowerCase(Locale.ROOT);
+            if (lower.equals("value")) {
+                break;
+            }
+            if (!NOT_DROPS.contains(lower)) {
+                drop = label;
+                break;
+            }
+        }
+        if (mob == null || mob.isEmpty()) {
+            return null;
+        }
+        String crop = clean(stack.getHoverName().getString()).trim();
+        if (crop.isEmpty()) {
+            return null;
+        }
+        MobInfo info = new MobInfo();
+        info.crop = crop;
+        info.mob = mob;
+        info.drop = drop;
+        return info;
+    }
+
+    private static boolean isLastPage(AbstractContainerScreen<?> screen) {
+        Matcher matcher = PAGE_PATTERN.matcher(clean(screen.getTitle().getString()));
+        return matcher.find() && Integer.parseInt(matcher.group(1)) >= Integer.parseInt(matcher.group(2));
+    }
+
+    private static boolean clickNextPage(Minecraft client, AbstractContainerScreen<?> screen) {
+        if (client.gameMode == null || client.player == null) {
+            return false;
+        }
+        AbstractContainerMenu menu = screen.getMenu();
+        int arrowIndex = -1;
+        int lastIndex = -1;
+        for (int i = 0; i < menu.slots.size(); i++) {
+            Slot slot = menu.slots.get(i);
+            if (slot.container instanceof Inventory) {
+                continue;
+            }
+            lastIndex = i;
+            ItemStack stack = slot.getItem();
+            if (stack.isEmpty() || parse(client, stack) != null) {
+                continue;
+            }
+            String name = clean(stack.getHoverName().getString()).toLowerCase(Locale.ROOT);
+            if (name.contains("previous") || name.contains("back")) {
+                continue;
+            }
+            if (name.contains("next") || stack.is(Items.ARROW) || stack.is(Items.SPECTRAL_ARROW)) {
+                arrowIndex = i;
+            }
+        }
+        if (arrowIndex < 0 && lastIndex >= 0) {
+            ItemStack corner = menu.slots.get(lastIndex).getItem();
+            if (!corner.isEmpty() && parse(client, corner) == null) {
+                arrowIndex = lastIndex;
+            }
+        }
+        if (arrowIndex < 0) {
+            return false;
+        }
+        client.gameMode.handleInventoryMouseClick(menu.containerId, arrowIndex, 0, ClickType.PICKUP, client.player);
+        return true;
+    }
+
+    private static String pageSignature(AbstractContainerScreen<?> screen) {
+        StringBuilder signature = new StringBuilder(screen.getTitle().getString());
+        for (Slot slot : screen.getMenu().slots) {
+            if (!(slot.container instanceof Inventory) && !slot.getItem().isEmpty()) {
+                signature.append('|').append(slot.getItem().getHoverName().getString());
+            }
+        }
+        return signature.toString();
+    }
+
+    private static List<String> tooltipLines(Minecraft client, ItemStack stack) {
+        List<String> lines = new ArrayList<>();
+        try {
+            List<Component> tooltip = stack.getTooltipLines(
+                    net.minecraft.world.item.Item.TooltipContext.of(client.level),
+                    client.player,
+                    net.minecraft.world.item.TooltipFlag.Default.NORMAL
+            );
+            for (Component part : tooltip) {
+                if (part != null) {
+                    lines.add(clean(part.getString()));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return lines;
+    }
+
+    private static String clean(String raw) {
+        String stripped = SbText.stripFormattingCodes(SbText.stripSprites(raw));
+        StringBuilder out = new StringBuilder(stripped.length());
+        for (int i = 0; i < stripped.length(); i++) {
+            out.append(SbText.foldChar(stripped.charAt(i)));
+        }
+        return out.toString();
+    }
+
+    private static String stripLeadingSymbols(String value) {
+        String trimmed = value.trim();
+        while (!trimmed.isEmpty() && !Character.isLetterOrDigit(trimmed.charAt(0))) {
+            trimmed = trimmed.substring(1).trim();
+        }
+        return trimmed;
+    }
+
+    private static String key(String cropName) {
+        return cropName == null ? "" : cropName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    private static Data data() {
+        if (cached == null) {
+            cached = load();
+        }
+        return cached;
+    }
+
+    private static Data load() {
+        if (!Files.exists(DATA_PATH)) {
+            return new Data();
+        }
+        try {
+            Data data = GSON.fromJson(Files.readString(DATA_PATH), Data.class);
+            if (data == null) {
+                return new Data();
+            }
+            if (data.farms == null) {
+                data.farms = new LinkedHashMap<>();
+            }
+            return data;
+        } catch (IOException | JsonSyntaxException ignored) {
+            return new Data();
+        }
+    }
+
+    private static void save(Data data) {
+        cached = data;
+        try {
+            Files.createDirectories(DATA_PATH.getParent());
+            Files.writeString(DATA_PATH, GSON.toJson(data));
+        } catch (IOException ignored) {
+        }
+    }
+}

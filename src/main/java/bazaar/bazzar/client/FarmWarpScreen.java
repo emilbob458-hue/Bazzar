@@ -30,6 +30,8 @@ final class FarmWarpScreen extends Screen {
     private static final int HINT_H = 14;
     private static final String WORLD_HINT = "Warp to world ▶";
     private static final String FAVORITE_HINT = "Right click a crop to favorite it";
+    private static final String SCAN_LABEL = "Scan mobs";
+    private static final String RESCAN_LABEL = "Rescan mobs";
     private static final int FAVORITE_GOLD = 0xFFD75A;
 
     private static final int HEADER_TEXT = 0xFFFFFFFF;
@@ -106,7 +108,7 @@ final class FarmWarpScreen extends Screen {
     private int contentWidth() {
         int hintW = font.width(WORLD_HINT);
         int needed = font.width(getTitle()) + 48;
-        needed = Math.max(needed, 16 + font.width(FAVORITE_HINT) + 10);
+        needed = Math.max(needed, 16 + font.width(FAVORITE_HINT) + 12 + font.width(RESCAN_LABEL) + 10);
         WorldTab[] worlds = WorldTab.values();
         for (int i = 0; i < worlds.length; i++) {
             int nameRowW = 16 + font.width(worldLabels[i]) + 12 + hintW + 10;
@@ -232,6 +234,7 @@ final class FarmWarpScreen extends Screen {
 
         WorldTab[] worlds = WorldTab.values();
         Component hoveredCropLabel = null;
+        FarmEntry hoveredFarm = null;
 
         if (!favorites.isEmpty()) {
             int fy = favSectionY();
@@ -244,6 +247,7 @@ final class FarmWarpScreen extends Screen {
                 if (isInside(mouseX, mouseY, ix - 2, iy - 2, 20, 20)) {
                     BazzarUi.fillRoundedRect(graphics, ix - 2, iy - 2, 20, 20, 3, theme.soft(0x40));
                     hoveredCropLabel = BazzarUi.gradientText(fav.farm().name(), fav.world().gradFrom, fav.world().gradTo, false);
+                    hoveredFarm = fav.farm();
                 }
                 graphics.renderItem(fav.farm().icon(), ix, iy);
             }
@@ -269,6 +273,7 @@ final class FarmWarpScreen extends Screen {
                 if (isInside(mouseX, mouseY, ix - 2, iy - 2, 20, 20)) {
                     BazzarUi.fillRoundedRect(graphics, ix - 2, iy - 2, 20, 20, 3, theme.soft(0x40));
                     hoveredCropLabel = BazzarUi.gradientText(crops.get(j).name(), world.gradFrom, world.gradTo, false);
+                    hoveredFarm = crops.get(j);
                 }
                 graphics.renderItem(crops.get(j).icon(), ix, iy);
                 if (favoriteCommands.contains(crops.get(j).command())) {
@@ -281,23 +286,46 @@ final class FarmWarpScreen extends Screen {
             }
         }
 
-        int hintY = top + TITLE_H + favSectionH() + worlds.length * SECTION_H + 2;
-        graphics.drawString(font, FAVORITE_HINT, left + 16, hintY, 0xFF8E97A6, false);
+        graphics.drawString(font, FAVORITE_HINT, left + 16, hintY(), 0xFF8E97A6, false);
+        ButtonBounds scan = scanBounds();
+        String scanLabel = FarmMobScanner.hasData() ? RESCAN_LABEL : SCAN_LABEL;
+        int scanColor = isInside(mouseX, mouseY, scan) ? 0xFF000000 | (theme.light() & 0xFFFFFF) : 0xFF8E97A6;
+        graphics.drawString(font, scanLabel, scan.x(), hintY(), scanColor, false);
 
         if (hoveredCropLabel != null) {
-            drawMiniTooltip(graphics, hoveredCropLabel, mouseX, mouseY);
+            drawMiniTooltip(graphics, hoveredCropLabel, mobLines(hoveredFarm), mouseX, mouseY);
         }
         super.render(graphics, mouseX, mouseY, delta);
         graphics.pose().popMatrix();
     }
 
-    private void drawMiniTooltip(GuiGraphics graphics, Component text, int mouseX, int mouseY) {
+    private List<Component> mobLines(FarmEntry farm) {
+        FarmMobScanner.MobInfo info = farm == null ? null : FarmMobScanner.get(farm.name());
+        if (info == null) {
+            return List.of();
+        }
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.literal("Mob: ").withColor(0x8E97A6).append(Component.literal(info.mob).withColor(0xFFFFFF)));
+        if (info.drop != null && !info.drop.isBlank()) {
+            lines.add(Component.literal("Drop: ").withColor(0x8E97A6).append(Component.literal(info.drop).withColor(0xFFD75A)));
+        }
+        return lines;
+    }
+
+    private void drawMiniTooltip(GuiGraphics graphics, Component text, List<Component> extra, int mouseX, int mouseY) {
         int textW = font.width(text);
+        for (Component line : extra) {
+            textW = Math.max(textW, font.width(line));
+        }
+        int textH = 10 + extra.size() * 10;
         int tx = Math.max(4, Math.min(mouseX + 8, width - textW - 8));
-        int ty = Math.max(4, mouseY - 14);
-        graphics.fill(tx - 3, ty - 3, tx + textW + 3, ty + 10, 0xE6000000);
+        int ty = Math.max(4, Math.min(mouseY - 14, height - textH - 4));
+        graphics.fill(tx - 3, ty - 3, tx + textW + 3, ty + textH, 0xE6000000);
         graphics.fill(tx - 3, ty - 3, tx + textW + 3, ty - 2, BazzarTheme.current().accentDim());
         graphics.drawString(font, text, tx, ty, 0xFFFFFFFF, false);
+        for (int i = 0; i < extra.size(); i++) {
+            graphics.drawString(font, extra.get(i), tx, ty + 10 + i * 10, 0xFFFFFFFF, false);
+        }
     }
 
     @Override
@@ -309,6 +337,10 @@ final class FarmWarpScreen extends Screen {
 
     @Override
     public void tick() {
+        if (closingSinceMs < 0L && FarmMobScanner.shouldAutoScan()
+                && FarmMobScanner.start(Minecraft.getInstance(), true)) {
+            return;
+        }
         if (closingSinceMs >= 0L && System.currentTimeMillis() - closingSinceMs >= 130L) {
             Minecraft.getInstance().setScreen(null);
         }
@@ -323,6 +355,11 @@ final class FarmWarpScreen extends Screen {
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
         boolean rightClick = event.button() == 1;
+
+        if (!rightClick && isInside(mouseX, mouseY, scanBounds())) {
+            FarmMobScanner.start(Minecraft.getInstance(), true);
+            return true;
+        }
 
         for (int i = 0; i < favorites.size(); i++) {
             if (isInside(mouseX, mouseY, favIconX(i) - 2, favIconY(i) - 2, 20, 20)) {
@@ -370,6 +407,15 @@ final class FarmWarpScreen extends Screen {
         Minecraft client = Minecraft.getInstance();
         CommandSender.send(client, command);
         client.setScreen(null);
+    }
+
+    private int hintY() {
+        return top + TITLE_H + favSectionH() + WorldTab.values().length * SECTION_H + 2;
+    }
+
+    private ButtonBounds scanBounds() {
+        int w = font.width(FarmMobScanner.hasData() ? RESCAN_LABEL : SCAN_LABEL);
+        return new ButtonBounds(left + panelW - 10 - w, hintY() - 1, w, 11);
     }
 
     private int sectionY(int index) {

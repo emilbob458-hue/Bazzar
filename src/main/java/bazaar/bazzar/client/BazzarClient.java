@@ -155,6 +155,7 @@ public class BazzarClient implements ClientModInitializer {
             ChatCommandTriggerController.tick(client);
             BazaarAutoScanController.tick(client);
             GuildQuestScanner.tick(client);
+            FarmMobScanner.tick(client);
             MultiplierMenuScanner.tick(client);
             AutoUpdater.tick(client);
             UsageStats.tick(client);
