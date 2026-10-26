@@ -51,7 +51,9 @@ final class AutoUpdater {
     private static final Path PART_JAR = DIR.resolve("Bazzar.jar.part");
     private static final Path DISABLED = DIR.resolve("disabled");
     private static final Path HELPER_DIR = DIR.resolve("helper");
+    private static final long RECHECK_MS = 30L * 60_000L;
     private static final AtomicBoolean CHECKING = new AtomicBoolean();
+    private static long nextCheckMs;
     private static final Queue<Component> MESSAGES = new ConcurrentLinkedQueue<>();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -72,12 +74,20 @@ final class AutoUpdater {
 
     static void start() {
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> applyPending());
+        nextCheckMs = System.currentTimeMillis() + RECHECK_MS;
         if (!Files.exists(DISABLED)) {
             checkAsync(false);
         }
     }
 
     static void tick(Minecraft client) {
+        long now = System.currentTimeMillis();
+        if (now >= nextCheckMs) {
+            nextCheckMs = now + RECHECK_MS;
+            if (!Files.exists(DISABLED)) {
+                checkAsync(false);
+            }
+        }
         if (client.player == null) {
             return;
         }
@@ -195,7 +205,9 @@ final class AutoUpdater {
         String expectedHash = digest.substring("sha256:".length()).toLowerCase(Locale.ROOT);
 
         if (Files.isRegularFile(PENDING_JAR) && expectedHash.equals(sha256(PENDING_JAR))) {
-            post("Bazzar " + latest.getFriendlyString() + " is downloaded. Restart Minecraft to finish updating.", ChatFormatting.AQUA);
+            if (manual) {
+                post("Bazzar " + latest.getFriendlyString() + " is downloaded. Restart Minecraft to finish updating.", ChatFormatting.AQUA);
+            }
             return;
         }
 
