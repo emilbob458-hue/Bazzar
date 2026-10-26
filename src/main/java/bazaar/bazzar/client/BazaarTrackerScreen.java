@@ -129,6 +129,7 @@ final class BazaarTrackerScreen extends Screen {
     private long lastAnimMillis = -1L;
     private float animDelta;
     private int themeScroll;
+    private int infoScroll;
     private BazzarTheme pendingTheme = BazzarTheme.current();
     private boolean cookieFallbackOpen;
     private boolean cookieRushOpen;
@@ -429,6 +430,8 @@ final class BazaarTrackerScreen extends Screen {
             drawHudPanel(graphics, mouseX, mouseY);
         } else if (activeMainTab == MainTab.THEMES) {
             drawThemesPanel(graphics, mouseX, mouseY);
+        } else if (activeMainTab == MainTab.INFO) {
+            drawInfoPanel(graphics);
         } else {
             drawToolbar(graphics, mouseX, mouseY);
             drawGemFlipList(graphics, mouseX, mouseY);
@@ -491,6 +494,7 @@ final class BazaarTrackerScreen extends Screen {
                         case COOKIE -> "Cookie settings opened.";
                         case HUD -> "HUD settings opened.";
                         case THEMES -> "Theme gallery opened.";
+                        case INFO -> "Commands and keybinds.";
                     };
                     setFocused(null);
                     cookieFallbackOpen = false;
@@ -807,6 +811,7 @@ final class BazaarTrackerScreen extends Screen {
             case COOKIE -> "COOKIE AUTOMATION";
             case HUD -> "HUD SETTINGS";
             case THEMES -> "THEMES";
+            case INFO -> "COMMANDS & INFO";
         };
         int x = contentX();
         int y = sectionY();
@@ -862,6 +867,7 @@ final class BazaarTrackerScreen extends Screen {
             case PRESETS -> presetNames.size() + " saved";
             case COOKIE -> BazzarConfig.load().cookieAutoEnabled ? "Auto ON" : "Auto OFF";
             case THEMES -> pendingTheme != null ? pendingTheme.name : BazzarTheme.current().name;
+            case INFO -> "Scroll for more";
         };
     }
 
@@ -1819,6 +1825,98 @@ final class BazaarTrackerScreen extends Screen {
         return THEME_CARD_TOP_PAD + rows * THEME_CARD_STEP - (THEME_CARD_STEP - THEME_CARD_H);
     }
 
+    private static final String[][] INFO_LINES = {
+            {"Shard Auto Pay"},
+            {"/setshardprice <price>", "Price per shard, e.g. /setshardprice 1T (also used by /calcshard)"},
+            {"/setshardprice on|off", "Turn shard auto pay on or off (/setshardprice alone shows status)"},
+            {"/setshardprice 1T on", "Set the price and turn auto pay on in one go"},
+            {"Gem Auto Pay"},
+            {"/setgemprice <price>", "Price you pay per gem received, also used by /calcgems"},
+            {"/setgemprice on|off", "Turn gem auto pay on or off"},
+            {"Cobble Auto Pay"},
+            {"/setcobble <price>", "Price you pay per cobble received"},
+            {"/setcobble on|off", "Turn cobble auto pay on or off"},
+            {"", "Payments of 5 or fewer shards, gems or cobble are ignored"},
+            {"Calculators"},
+            {"/calcshard <count>", "What that many shards are worth"},
+            {"/calcgems <count>", "What that many gems are worth at your gem price"},
+            {"/setmulti <multi>", "Set your current multiplier"},
+            {"/calcmulti <target>", "Cost to reach a target multiplier (or /calc multi)"},
+            {"/calcxp <levels>", "XP needed for levels"},
+            {"/calc <expression>", "Calculator, works with k/m/b/t, e.g. /calc 2.5b*4"},
+            {"Other Commands"},
+            {"/alts <command>", "Run a command on your alts on this PC (/alts alone shows status)"},
+            {"/config list|save|set|delete <name>", "Save and load config presets"},
+            {"/cookie <type>", "Use a cookie: auto, suspicious, cobbled, colossal, golden..."},
+            {"/blacklist <crop>", "Hide a crop from the tracker, run again to unhide"},
+            {"/bazzarupdate [on|off]", "Check for an update now, or turn auto update on/off"},
+            {"/bazzarusers [on|off]", "Show Bazzar users online, or turn being counted on/off"},
+            {"/bazzarstats [on|off]", "Leaderboard stats status, or turn them on/off"},
+            {"Keybinds"},
+            {"Options > Controls > Bazaar", "Crop Tracker, Farm Warps, Scan Bazaar, PV Search, Guild Quests, HUD, Chat Macros 1-8"}
+    };
+    private static final int INFO_HEADER_H = 16;
+    private static final int INFO_ENTRY_H = 22;
+    private static final int INFO_NOTE_H = 13;
+
+    private int infoY0() {
+        return settingsTop() - 4;
+    }
+
+    private int infoAvailH() {
+        return footerLineY() - 6 - infoY0();
+    }
+
+    private int infoLineH(String[] line) {
+        if (line.length == 1) {
+            return INFO_HEADER_H;
+        }
+        return line[0].isEmpty() ? INFO_NOTE_H : INFO_ENTRY_H;
+    }
+
+    private int infoTotalH() {
+        int total = 0;
+        for (String[] line : INFO_LINES) {
+            total += infoLineH(line);
+        }
+        return total;
+    }
+
+    private void drawInfoPanel(GuiGraphics graphics) {
+        int x = contentX();
+        int y0 = infoY0();
+        int availH = infoAvailH();
+        int textW = contentW() - 8;
+        int maxScroll = Math.max(0, infoTotalH() - availH);
+        infoScroll = Math.max(0, Math.min(infoScroll, maxScroll));
+
+        graphics.enableScissor(x, y0, x + contentW(), y0 + availH);
+        int y = y0 - infoScroll;
+        for (String[] line : INFO_LINES) {
+            int h = infoLineH(line);
+            if (y + h >= y0 && y <= y0 + availH) {
+                if (line.length == 1) {
+                    graphics.drawString(font, line[0].toUpperCase(Locale.ROOT), x, y + 5, ACCENT_TEXT, false);
+                } else if (line[0].isEmpty()) {
+                    graphics.drawString(font, font.plainSubstrByWidth(line[1], textW), x + 4, y + 1, TIP_TEXT, false);
+                } else {
+                    graphics.drawString(font, font.plainSubstrByWidth(line[0], textW), x + 4, y, HEADER_TEXT, false);
+                    graphics.drawString(font, font.plainSubstrByWidth(line[1], textW - 4), x + 8, y + 10, MUTED_TEXT, false);
+                }
+            }
+            y += h;
+        }
+        graphics.disableScissor();
+
+        if (maxScroll > 0) {
+            int barH = Math.max(12, availH * availH / infoTotalH());
+            int barY = y0 + (availH - barH) * infoScroll / maxScroll;
+            int barX = contentX() + contentW() - 2;
+            graphics.fill(barX, y0, barX + 2, y0 + availH, 0x22FFFFFF);
+            graphics.fill(barX, barY, barX + 2, barY + barH, ACCENT_DIM);
+        }
+    }
+
     private void drawThemesPanel(GuiGraphics graphics, int mouseX, int mouseY) {
         int x0 = themesX0();
         int y0 = themesY0();
@@ -2035,6 +2133,11 @@ final class BazaarTrackerScreen extends Screen {
         if (activeMainTab == MainTab.THEMES) {
             int maxScroll = Math.max(0, themesTotalH() - themesAvailH());
             themeScroll = Math.max(0, Math.min((int) (themeScroll - scrollY * 18.0d), maxScroll));
+            return true;
+        }
+        if (activeMainTab == MainTab.INFO) {
+            int maxScroll = Math.max(0, infoTotalH() - infoAvailH());
+            infoScroll = Math.max(0, Math.min((int) (infoScroll - scrollY * 18.0d), maxScroll));
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -3130,7 +3233,8 @@ final class BazaarTrackerScreen extends Screen {
         PRESETS("Presets"),
         HUD("HUD"),
         AUTO_EGG("Misc"),
-        THEMES("Themes");
+        THEMES("Themes"),
+        INFO("Info");
 
         final String label;
 
@@ -3143,6 +3247,7 @@ final class BazaarTrackerScreen extends Screen {
                 case TRACKER, GEM_FLIPS, AUTO_SCAN -> "BAZAAR";
                 case AUTO_CMD, MACROS, SHARD_PAY, COOKIE, PRESETS -> "QUALITY OF LIFE";
                 case HUD, AUTO_EGG, THEMES -> "DISPLAY";
+                case INFO -> "HELP";
                 default -> "COBBLE";
             };
         }
