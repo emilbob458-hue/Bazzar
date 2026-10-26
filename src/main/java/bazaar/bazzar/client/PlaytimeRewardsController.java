@@ -76,7 +76,7 @@ final class PlaytimeRewardsController {
         if (client == null || client.player == null || client.gameMode == null || client.level == null) {
             return;
         }
-        if (!(client.screen instanceof AbstractContainerScreen<?> screen)
+        if (!(McCompat.screen(client) instanceof AbstractContainerScreen<?> screen)
                 || !screen.getTitle().getString().toLowerCase(Locale.ROOT).contains(GUI_TITLE_FRAGMENT)) {
             if (autoOpened && System.currentTimeMillis() - autoOpenedAtMs > 15_000L) {
                 autoOpened = false;
@@ -102,7 +102,7 @@ final class PlaytimeRewardsController {
             autoOpened = false;
             claimedAny = false;
             idleScans = 0;
-            client.setScreen(null);
+            McCompat.setScreen(client, null);
         }
     }
 

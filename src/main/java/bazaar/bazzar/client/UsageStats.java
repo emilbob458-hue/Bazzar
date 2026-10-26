@@ -67,7 +67,7 @@ final class UsageStats {
         }
         Component message;
         while ((message = MESSAGES.poll()) != null) {
-            client.player.displayClientMessage(message, false);
+            McCompat.chat(client.player, message);
         }
     }
 

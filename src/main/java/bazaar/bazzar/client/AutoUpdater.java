@@ -44,6 +44,9 @@ import net.minecraft.network.chat.MutableComponent;
 
 final class AutoUpdater {
     private static final String MOD_ID = "bazzar";
+    private static final String TARGET_KEY = "bazzar:minecraft";
+    // Releases before the 26.2 build had one jar, made for this version.
+    private static final String LEGACY_TARGET = "1.21.11";
     private static final String RELEASE_API = "https://api.github.com/repos/emilbob458-hue/Bazzar/releases/latest";
     private static final Path DIR = FabricLoader.getInstance().getConfigDir().resolve("bazzar").resolve("update");
     private static final Path PENDING_JAR = DIR.resolve("Bazzar.jar");
@@ -93,7 +96,7 @@ final class AutoUpdater {
         }
         Component message;
         while ((message = MESSAGES.poll()) != null) {
-            client.player.displayClientMessage(message, false);
+            McCompat.chat(client.player, message);
         }
     }
 
@@ -187,16 +190,26 @@ final class AutoUpdater {
             return;
         }
 
+        String target = target();
+        String wanted = ("Bazzar-" + target + ".jar").toLowerCase(Locale.ROOT);
         JsonObject asset = null;
+        JsonObject legacy = null;
         for (JsonElement element : release.getAsJsonArray("assets")) {
             JsonObject candidate = element.getAsJsonObject();
-            if (candidate.get("name").getAsString().toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            String name = candidate.get("name").getAsString().toLowerCase(Locale.ROOT);
+            if (name.equals(wanted)) {
                 asset = candidate;
                 break;
             }
+            if (legacy == null && name.endsWith(".jar") && !name.startsWith("bazzar-")) {
+                legacy = candidate;
+            }
+        }
+        if (asset == null && LEGACY_TARGET.equals(target)) {
+            asset = legacy;
         }
         if (asset == null) {
-            throw new IOException("release " + tag + " has no jar");
+            throw new IOException("release " + tag + " has no jar for Minecraft " + target);
         }
         String digest = asset.has("digest") && !asset.get("digest").isJsonNull() ? asset.get("digest").getAsString() : "";
         if (!digest.startsWith("sha256:")) {
@@ -311,6 +324,13 @@ final class AutoUpdater {
         return Version.parse(cleaned);
     }
 
+    private static String target() {
+        return FabricLoader.getInstance().getModContainer(MOD_ID)
+                .map(container -> container.getMetadata().getCustomValue(TARGET_KEY))
+                .map(value -> value.getAsString())
+                .orElse(LEGACY_TARGET);
+    }
+
     private static boolean isBazzarJar(Path path) {
         try (ZipFile zip = new ZipFile(path.toFile())) {
             ZipEntry entry = zip.getEntry("fabric.mod.json");
@@ -319,7 +339,12 @@ final class AutoUpdater {
             }
             try (InputStreamReader reader = new InputStreamReader(zip.getInputStream(entry), StandardCharsets.UTF_8)) {
                 JsonObject meta = JsonParser.parseReader(reader).getAsJsonObject();
-                return meta.has("id") && MOD_ID.equals(meta.get("id").getAsString());
+                if (!meta.has("id") || !MOD_ID.equals(meta.get("id").getAsString())) {
+                    return false;
+                }
+                JsonObject custom = meta.has("custom") ? meta.getAsJsonObject("custom") : null;
+                String jarTarget = custom != null && custom.has(TARGET_KEY) ? custom.get(TARGET_KEY).getAsString() : LEGACY_TARGET;
+                return jarTarget.equals(target());
             }
         } catch (Exception e) {
             return false;

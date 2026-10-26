@@ -75,16 +75,11 @@ final class CelestialBoosterReminder {
         MutableComponent title = Component.literal("BOOSTER READY")
                 .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD);
         if (client.gui != null) {
-            client.gui.setTimes(5, 60, 10);
-            client.gui.setSubtitle(Component.empty());
-            client.gui.setTitle(title);
+            McCompat.showTitle(client, 5, 60, 10, title);
         }
         client.player.playSound(SoundEvents.PLAYER_LEVELUP, 0.8f, 1.2f);
-        client.player.displayClientMessage(
-                Component.literal("[Bazaar] /celestialbooster is off cooldown, use it now!")
-                        .withStyle(ChatFormatting.AQUA),
-                false
-        );
+        McCompat.chat(client.player, Component.literal("[Bazaar] /celestialbooster is off cooldown, use it now!")
+                .withStyle(ChatFormatting.AQUA));
     }
 
     private static void setReminder(long remainingMs) {

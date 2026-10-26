@@ -261,10 +261,7 @@ final class ShardPayController {
         if (client == null || client.player == null || !shownNotices.add(kind)) {
             return;
         }
-        client.player.displayClientMessage(
-                Component.literal("[Bazaar] Shard Pay: " + text).withStyle(ChatFormatting.YELLOW),
-                false
-        );
+        McCompat.chat(client.player, Component.literal("[Bazaar] Shard Pay: " + text).withStyle(ChatFormatting.YELLOW));
     }
 
     static String payNow(Minecraft client) {

@@ -28,7 +28,7 @@ final class MultiplierMenuScanner {
     }
 
     static void tick(Minecraft client) {
-        if (client.player == null || !(client.screen instanceof AbstractContainerScreen<?> screen)) {
+        if (client.player == null || !(McCompat.screen(client) instanceof AbstractContainerScreen<?> screen)) {
             tickCounter = 0;
             lastHandledOnceCost = -1.0d;
             return;

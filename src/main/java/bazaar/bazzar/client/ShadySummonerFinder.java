@@ -204,20 +204,15 @@ final class ShadySummonerFinder {
         }
         Component title = Component.literal(text)
                 .withStyle(Style.EMPTY.withColor(TextColor.fromRgb(BazzarTheme.current().rgb)).withBold(true));
-        client.gui.setTimes(5, 45, 10);
-        client.gui.setSubtitle(Component.empty());
-        client.gui.setTitle(title);
+        McCompat.showTitle(client, 5, 45, 10, title);
     }
 
     private static void sendChat(Minecraft client, String message) {
         if (client == null || client.player == null) {
             return;
         }
-        client.player.displayClientMessage(
-                Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA)
-                        .append(Component.literal(message).withStyle(ChatFormatting.AQUA)),
-                false
-        );
+        McCompat.chat(client.player, Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA)
+                .append(Component.literal(message).withStyle(ChatFormatting.AQUA)));
     }
 
     private static void playPing(Minecraft client) {

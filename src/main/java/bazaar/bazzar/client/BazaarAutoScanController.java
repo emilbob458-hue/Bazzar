@@ -148,7 +148,7 @@ final class BazaarAutoScanController {
         collected.clear();
         waitTicks = 0;
         timeoutTicks = 0;
-        if (client.screen != null) {
+        if (McCompat.screen(client) != null) {
             pendingOpen = true;
             state = State.WAIT_FOR_OPEN;
             return true;
@@ -168,14 +168,14 @@ final class BazaarAutoScanController {
             return;
         }
 
-        if (pendingOpen && client.screen == null) {
+        if (pendingOpen && McCompat.screen(client) == null) {
             pendingOpen = false;
             sendOpenCommand(client);
         }
 
         switch (state) {
             case WAIT_FOR_OPEN -> {
-                if (BazaarFlipScanner.isBazaarScreen(client.screen)) {
+                if (BazaarFlipScanner.isBazaarScreen(McCompat.screen(client))) {
                     if (currentScanMode == ScanMode.CROPS) {
                         state = State.SCAN_CROPS_1;
                     } else {
@@ -236,8 +236,8 @@ final class BazaarAutoScanController {
                 state = State.CLOSE;
             }
             case CLOSE -> {
-                if (client.screen != null) {
-                    client.setScreen(null);
+                if (McCompat.screen(client) != null) {
+                    McCompat.setScreen(client, null);
                 }
                 state = State.REPORT;
             }
@@ -248,7 +248,7 @@ final class BazaarAutoScanController {
                     BazaarFlipScanner.cacheGemsResults(collected);
                 }
                 PinnedBazaarHud.updateFromCandidates(collected);
-                BazaarFlipScanner.reportResults(text -> client.player.displayClientMessage(text, false), collected);
+                BazaarFlipScanner.reportResults(text -> McCompat.chat(client.player, text), collected);
                 reset();
             }
             default -> {
@@ -261,7 +261,7 @@ final class BazaarAutoScanController {
     }
 
     private static boolean clickNextPage(Minecraft client) {
-        Screen screen = client.screen;
+        Screen screen = McCompat.screen(client);
         if (!(screen instanceof AbstractContainerScreen<?> containerScreen)) {
             return false;
         }
@@ -284,7 +284,7 @@ final class BazaarAutoScanController {
     }
 
     private static boolean clickCategoryItem(Minecraft client, String itemId) {
-        Screen screen = client.screen;
+        Screen screen = McCompat.screen(client);
         if (!(screen instanceof AbstractContainerScreen<?> containerScreen)) {
             return false;
         }

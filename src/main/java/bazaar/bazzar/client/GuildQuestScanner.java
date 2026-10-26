@@ -134,7 +134,7 @@ final class GuildQuestScanner {
         }
         waitTicks = 0;
         timeoutTicks = 0;
-        if (client.screen != null) {
+        if (McCompat.screen(client) != null) {
             pendingOpen = true;
             state = State.WAIT_FOR_OPEN;
             return true;
@@ -155,14 +155,14 @@ final class GuildQuestScanner {
             return;
         }
 
-        if (pendingOpen && client.screen == null) {
+        if (pendingOpen && McCompat.screen(client) == null) {
             pendingOpen = false;
             sendOpenCommand(client);
         }
 
         switch (state) {
             case WAIT_FOR_OPEN -> {
-                if (isContainerOpen(client.screen)) {
+                if (isContainerOpen(McCompat.screen(client))) {
                     waitTicks = 0;
                     state = State.WAIT_FOR_SCAN;
                 }
@@ -178,8 +178,8 @@ final class GuildQuestScanner {
                 state = State.CLOSE;
             }
             case CLOSE -> {
-                if (client.screen != null) {
-                    client.setScreen(null);
+                if (McCompat.screen(client) != null) {
+                    McCompat.setScreen(client, null);
                 }
                 state = State.REPORT;
             }
@@ -212,7 +212,7 @@ final class GuildQuestScanner {
     }
 
     private static List<QuestEntry> collectQuestEntries(Minecraft client) {
-        Screen screen = client.screen;
+        Screen screen = McCompat.screen(client);
         if (!(screen instanceof AbstractContainerScreen<?> containerScreen)) {
             return List.of();
         }

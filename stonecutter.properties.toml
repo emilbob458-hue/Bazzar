@@ -1,0 +1,13 @@
+mod.id = "bazzar"
+mod.version = "1.10"
+mod.group = "bazaar"
+
+deps.fabric_loader = "0.18.4"
+
+["1.21.11"]
+mod.mc_compat = "~1.21.11"
+deps.fabric_api = "0.141.3+1.21.11"
+
+["26.2"]
+mod.mc_compat = "~26.2"
+deps.fabric_api = "0.161.0+26.2"

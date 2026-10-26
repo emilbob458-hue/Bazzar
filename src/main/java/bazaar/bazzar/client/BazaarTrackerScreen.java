@@ -465,7 +465,7 @@ final class BazaarTrackerScreen extends Screen {
     @Override
     public void tick() {
         if (closingSinceMs >= 0L && System.currentTimeMillis() - closingSinceMs >= 130L) {
-            Minecraft.getInstance().setScreen(null);
+            McCompat.setScreen(Minecraft.getInstance(), null);
         }
     }
 
@@ -601,7 +601,7 @@ final class BazaarTrackerScreen extends Screen {
                 if (command != null) {
                     Minecraft client = Minecraft.getInstance();
                     CommandSender.send(client, command);
-                    client.setScreen(null);
+                    McCompat.setScreen(client, null);
                     return true;
                 }
             }
@@ -1339,7 +1339,7 @@ final class BazaarTrackerScreen extends Screen {
             return true;
         }
         if (isInside(mouseX, mouseY, shardPayoutsButton())) {
-            Minecraft.getInstance().setScreen(new PayoutHistoryScreen(this));
+            McCompat.setScreen(Minecraft.getInstance(), new PayoutHistoryScreen(this));
             return true;
         }
         if (isInside(mouseX, mouseY, shardPunchToggleButton())) {
@@ -2296,7 +2296,7 @@ final class BazaarTrackerScreen extends Screen {
         BazzarConfig.State state = BazzarConfig.load();
         state.autoEggEnabled = AutoEggController.isEnabled();
         BazzarConfig.save(state);
-        Minecraft.getInstance().setScreen(null);
+        McCompat.setScreen(Minecraft.getInstance(), null);
         statusText = "Settings saved.";
     }
 
@@ -2427,13 +2427,10 @@ final class BazaarTrackerScreen extends Screen {
         }
         if (client.player != null) {
             String tabName = activeMainTab == MainTab.GEM_FLIPS ? "Gem Flips" : "Tracker";
-            client.player.displayClientMessage(
-                    Component.literal("[Bazaar] Started bazaar scan for " + tabName + ". Reopen the tracker when it finishes.")
-                            .withStyle(ChatFormatting.AQUA),
-                    false
-            );
+            McCompat.chat(client.player, Component.literal("[Bazaar] Started bazaar scan for " + tabName + ". Reopen the tracker when it finishes.")
+                    .withStyle(ChatFormatting.AQUA));
         }
-        client.setScreen(null);
+        McCompat.setScreen(client, null);
     }
 
     private boolean handleAutoScanClick(int mouseX, int mouseY) {

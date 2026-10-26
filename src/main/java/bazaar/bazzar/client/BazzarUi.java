@@ -1,15 +1,20 @@
 package bazaar.bazzar.client;
 
-import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.platform.DepthTestFunction;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
-import com.mojang.blaze3d.vertex.VertexFormatElement;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.render.TextureSetup;
+//? if >=26.1 {
+/*import com.mojang.blaze3d.GpuFormat;
+import net.minecraft.client.renderer.state.gui.GuiElementRenderState;
+*///?} else {
+import com.mojang.blaze3d.pipeline.BlendFunction;
+import com.mojang.blaze3d.platform.DepthTestFunction;
+import com.mojang.blaze3d.vertex.VertexFormatElement;
 import net.minecraft.client.gui.render.state.GuiElementRenderState;
+//?}
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -21,6 +26,22 @@ import org.joml.Matrix3x2f;
 
 final class BazzarUi {
 
+    //? if >=26.1 {
+    /*private static final VertexFormat ROUNDED_FORMAT = VertexFormat.builder(0)
+            .addAttribute("Position", GpuFormat.RGB32_FLOAT)
+            .addAttribute("Color", GpuFormat.RGBA8_UNORM)
+            .addAttribute("UV0", GpuFormat.RG32_FLOAT)
+            .addAttribute("UV1", GpuFormat.RG16_SINT)
+            .addAttribute("UV2", GpuFormat.RG16_SINT)
+            .build();
+
+    private static final RenderPipeline ROUNDED_PIPELINE = RenderPipeline.builder(RenderPipelines.GUI_SNIPPET)
+            .withLocation(Identifier.fromNamespaceAndPath("bazzar", "pipeline/rounded"))
+            .withVertexShader(Identifier.fromNamespaceAndPath("bazzar", "core/rounded"))
+            .withFragmentShader(Identifier.fromNamespaceAndPath("bazzar", "core/rounded"))
+            .withVertexBinding(0, ROUNDED_FORMAT)
+            .build();
+    *///?} else {
     private static final VertexFormat ROUNDED_FORMAT = VertexFormat.builder()
             .add("Position", VertexFormatElement.POSITION)
             .add("Color", VertexFormatElement.COLOR)
@@ -37,6 +58,7 @@ final class BazzarUi {
             .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
             .withVertexFormat(ROUNDED_FORMAT, VertexFormat.Mode.QUADS)
             .build();
+    //?}
 
     private static final int MODE_FILL = 0;
     private static final int MODE_BORDER = 1;
@@ -100,6 +122,9 @@ final class BazzarUi {
         if (bounds == null) {
             return;
         }
+        //? if >=26.1 {
+        /*graphics.guiRenderState.addGuiElement(new RoundedQuad(
+        *///?} else
         graphics.guiRenderState.submitGuiElement(new RoundedQuad(
                 pose, x0, y0, x1, y1, sdfHalfW, sdfHalfH, radius, mode, c00, c10, c11, c01, scissor, bounds));
     }

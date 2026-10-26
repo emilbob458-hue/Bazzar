@@ -160,9 +160,9 @@ final class FarmMobScanner {
         reopenWarpScreen = reopenAfter;
         phase = Phase.REWIND;
         state = State.WAIT_FOR_OPEN;
-        if (client.screen != null) {
+        if (McCompat.screen(client) != null) {
             pendingOpen = true;
-            client.setScreen(null);
+            McCompat.setScreen(client, null);
         } else {
             CommandSender.send(client, WARP_COMMAND);
         }
@@ -178,7 +178,7 @@ final class FarmMobScanner {
             finish(client);
             return;
         }
-        if (pendingOpen && client.screen == null) {
+        if (pendingOpen && McCompat.screen(client) == null) {
             pendingOpen = false;
             CommandSender.send(client, WARP_COMMAND);
         }
@@ -254,8 +254,8 @@ final class FarmMobScanner {
             String message = collected.isEmpty()
                     ? "Could not read farm mobs from /" + WARP_COMMAND + "."
                     : "Saved mobs for " + collected.size() + " farms.";
-            client.player.displayClientMessage(Component.literal("[Bazaar] " + message)
-                    .withStyle(collected.isEmpty() ? ChatFormatting.RED : ChatFormatting.AQUA), false);
+            McCompat.chat(client.player, Component.literal("[Bazaar] " + message)
+                    .withStyle(collected.isEmpty() ? ChatFormatting.RED : ChatFormatting.AQUA));
         }
         state = State.IDLE;
         waitTicks = 0;
@@ -264,15 +264,15 @@ final class FarmMobScanner {
         reopenWarpScreen = false;
         collected.clear();
         if (menuScreen(client) != null) {
-            client.setScreen(null);
+            McCompat.setScreen(client, null);
         }
-        if (reopen && client.screen == null) {
-            client.setScreen(new FarmWarpScreen());
+        if (reopen && McCompat.screen(client) == null) {
+            McCompat.setScreen(client, new FarmWarpScreen());
         }
     }
 
     private static AbstractContainerScreen<?> menuScreen(Minecraft client) {
-        if (client.screen instanceof AbstractContainerScreen<?> screen
+        if (McCompat.screen(client) instanceof AbstractContainerScreen<?> screen
                 && clean(screen.getTitle().getString()).toLowerCase(Locale.ROOT).contains(MENU_TITLE)) {
             return screen;
         }

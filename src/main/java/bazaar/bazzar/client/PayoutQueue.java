@@ -108,7 +108,7 @@ final class PayoutQueue {
 
     private static void message(Minecraft client, Component text) {
         if (client != null && client.player != null) {
-            client.player.displayClientMessage(text, false);
+            McCompat.chat(client.player, text);
         }
     }
 

@@ -155,9 +155,6 @@ final class AltCommandController {
         String text = ran.isEmpty()
                 ? "[Bazaar] No alts ran the broadcast. Are they on the newest jar? Type /alts on an alt to check its status."
                 : "[Bazaar] Alts ran it (" + ran.size() + "): " + String.join(", ", ran);
-        client.player.displayClientMessage(
-                Component.literal(text).withStyle(ran.isEmpty() ? ChatFormatting.YELLOW : ChatFormatting.AQUA),
-                false
-        );
+        McCompat.chat(client.player, Component.literal(text).withStyle(ran.isEmpty() ? ChatFormatting.YELLOW : ChatFormatting.AQUA));
     }
 }

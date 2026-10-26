@@ -416,8 +416,8 @@ final class PublicPresets {
     private static void say(Component message) {
         Minecraft client = Minecraft.getInstance();
         if (client.player != null) {
-            client.player.displayClientMessage(Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA)
-                    .append(message), false);
+            McCompat.chat(client.player, Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA)
+                    .append(message));
         }
     }
 }

@@ -201,11 +201,11 @@ final class BazaarFlipScanner {
         List<FlipCandidate> candidates = collectCandidatesIncludingBlacklisted(client);
         cacheCropsResults(candidates);
         if (candidates.isEmpty()) {
-            client.player.displayClientMessage(prefix().append(Component.literal("Open the Cobblestone price GUI first.")
-                    .withStyle(ChatFormatting.RED)), false);
+            McCompat.chat(client.player, prefix().append(Component.literal("Open the Cobblestone price GUI first.")
+                    .withStyle(ChatFormatting.RED)));
             return;
         }
-        reportResults(text -> client.player.displayClientMessage(text, false), candidates);
+        reportResults(text -> McCompat.chat(client.player, text), candidates);
     }
 
     static boolean isBazaarScreen(Screen screen) {
@@ -225,7 +225,7 @@ final class BazaarFlipScanner {
     }
 
     private static List<FlipCandidate> collectCandidates(Minecraft client, boolean includeBlacklisted) {
-        Screen current = client.screen;
+        Screen current = McCompat.screen(client);
         if (!isBazaarScreen(current)) {
             return List.of();
         }

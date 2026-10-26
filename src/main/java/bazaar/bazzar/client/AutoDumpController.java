@@ -57,7 +57,7 @@ final class AutoDumpController {
             return;
         }
         checkCooldown = CHECK_INTERVAL_TICKS;
-        if (client.screen != null) {
+        if (McCompat.screen(client) != null) {
             return;
         }
         if (System.currentTimeMillis() < nextAllowedMs) {
@@ -95,7 +95,7 @@ final class AutoDumpController {
             return;
         }
         stepCooldown = DUMP_STEP_TICKS;
-        AbstractContainerScreen<?> screen = (AbstractContainerScreen<?>) client.screen;
+        AbstractContainerScreen<?> screen = (AbstractContainerScreen<?>) McCompat.screen(client);
 
         int remaining = 0;
         int nextSlot = -1;
@@ -137,12 +137,9 @@ final class AutoDumpController {
     }
 
     private static void finish(Minecraft client, String message, boolean pvFull) {
-        client.setScreen(null);
-        client.player.displayClientMessage(
-                Component.literal("[Bazaar] " + message)
-                        .withStyle(pvFull ? ChatFormatting.YELLOW : ChatFormatting.AQUA),
-                false
-        );
+        McCompat.setScreen(client, null);
+        McCompat.chat(client.player, Component.literal("[Bazaar] " + message)
+                .withStyle(pvFull ? ChatFormatting.YELLOW : ChatFormatting.AQUA));
         state = State.IDLE;
         nextAllowedMs = System.currentTimeMillis() + (pvFull ? FULL_PV_COOLDOWN_MS : RETRY_COOLDOWN_MS);
     }
@@ -159,7 +156,7 @@ final class AutoDumpController {
     }
 
     private static boolean isPvScreen(Minecraft client) {
-        if (!(client.screen instanceof AbstractContainerScreen<?> screen)) {
+        if (!(McCompat.screen(client) instanceof AbstractContainerScreen<?> screen)) {
             return false;
         }
         String title = screen.getTitle().getString().toLowerCase(Locale.ROOT);

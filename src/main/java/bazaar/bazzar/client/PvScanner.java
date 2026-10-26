@@ -29,7 +29,7 @@ final class PvScanner {
         if (client == null || client.player == null || client.level == null) {
             return;
         }
-        if (!(client.screen instanceof AbstractContainerScreen<?> screen)) {
+        if (!(McCompat.screen(client) instanceof AbstractContainerScreen<?> screen)) {
             lastSignature = "";
             return;
         }

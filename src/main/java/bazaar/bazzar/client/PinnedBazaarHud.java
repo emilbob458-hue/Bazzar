@@ -238,7 +238,7 @@ final class PinnedBazaarHud {
     }
 
     static void tick(Minecraft client) {
-        boolean inBazaar = BazaarFlipScanner.isBazaarScreen(client.screen);
+        boolean inBazaar = BazaarFlipScanner.isBazaarScreen(McCompat.screen(client));
         if (!inBazaar) {
             updateCooldown = 0;
             wasInBazaar = false;
@@ -357,11 +357,8 @@ final class PinnedBazaarHud {
         if (BazaarFlipScanner.isBlacklisted(name, itemId)) {
             Minecraft client = Minecraft.getInstance();
             if (client != null && client.player != null) {
-                client.player.displayClientMessage(
-                        Component.literal("[Bazaar] " + name + " is blacklisted. Use /blacklist " + name + " to unblacklist.")
-                                .withStyle(ChatFormatting.RED),
-                        false
-                );
+                McCompat.chat(client.player, Component.literal("[Bazaar] " + name + " is blacklisted. Use /blacklist " + name + " to unblacklist.")
+                        .withStyle(ChatFormatting.RED));
             }
             return;
         }

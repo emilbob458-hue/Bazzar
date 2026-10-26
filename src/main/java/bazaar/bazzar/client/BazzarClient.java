@@ -5,8 +5,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.minecraft.client.KeyMapping;
@@ -99,8 +98,8 @@ public class BazzarClient implements ClientModInitializer {
                 BazaarAutoScanController.triggerManual(client, BazaarAutoScanController.ScanMode.CROPS);
             }
             while (farmsKey.consumeClick()) {
-                if (client.screen == null) {
-                    client.setScreen(new FarmWarpScreen());
+                if (McCompat.screen(client) == null) {
+                    McCompat.setScreen(client, new FarmWarpScreen());
                 }
             }
             while (scaleUpKey.consumeClick()) {
@@ -112,16 +111,13 @@ public class BazzarClient implements ClientModInitializer {
             while (toggleHudKey.consumeClick()) {
                 PinnedBazaarHud.toggleVisibility();
                 if (client.player != null) {
-                    client.player.displayClientMessage(
-                            net.minecraft.network.chat.Component.literal(
-                                    PinnedBazaarHud.isVisible() ? "[Bazaar] HUD shown" : "[Bazaar] HUD hidden"),
-                            false
-                    );
+                    McCompat.chat(client.player, net.minecraft.network.chat.Component.literal(
+                            PinnedBazaarHud.isVisible() ? "[Bazaar] HUD shown" : "[Bazaar] HUD hidden"));
                 }
             }
             while (trackerGuiKey.consumeClick()) {
-                if (client.screen == null) {
-                    client.setScreen(new BazaarTrackerScreen());
+                if (McCompat.screen(client) == null) {
+                    McCompat.setScreen(client, new BazaarTrackerScreen());
                 }
             }
             while (questHudKey.consumeClick()) {
@@ -129,8 +125,8 @@ public class BazzarClient implements ClientModInitializer {
                 GuildQuestScanner.triggerManual(client);
             }
             while (pvSearchKey.consumeClick()) {
-                if (client.screen == null) {
-                    client.setScreen(new PvSearchScreen());
+                if (McCompat.screen(client) == null) {
+                    McCompat.setScreen(client, new PvSearchScreen());
                 }
             }
             for (int i = 0; i < macroKeys.length; i++) {
@@ -235,13 +231,13 @@ public class BazzarClient implements ClientModInitializer {
                 (level, player, pos, state) -> BlockBreakCounter.onOwnBreak(pos));
 
 
-        HudRenderCallback.EVENT.register((graphics, tickDelta) -> {
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("bazzar", "hud"), (graphics, tickDelta) -> {
             if (BazzarGuard.isBlocked()) {
                 return;
             }
             net.minecraft.client.Minecraft client = net.minecraft.client.Minecraft.getInstance();
             ScoreboardOverlay.render(graphics);
-            if (client.screen == null) {
+            if (McCompat.screen(client) == null) {
                 PinnedBazaarHud.render(graphics, graphics.guiWidth(), graphics.guiHeight(), -1, -1);
                 ShadySummonerTimerHud.render(graphics, graphics.guiWidth(), graphics.guiHeight(), -1, -1);
                 QuestCommandHud.render(graphics, -1, -1);

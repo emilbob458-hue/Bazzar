@@ -63,7 +63,7 @@ final class CelestialRewardsController {
         if (!isEnabled()) {
             return;
         }
-        if (client.screen instanceof AbstractContainerScreen<?> screen && isRewardsScreen(screen)) {
+        if (McCompat.screen(client) instanceof AbstractContainerScreen<?> screen && isRewardsScreen(screen)) {
             tickScreen(client, screen);
             return;
         }
@@ -78,7 +78,7 @@ final class CelestialRewardsController {
             return;
         }
         checkCooldown = CHECK_INTERVAL_TICKS;
-        if (client.screen != null || joinTicks < JOIN_DELAY_TICKS || now - lastOpenMs < RETRY_MS) {
+        if (McCompat.screen(client) != null || joinTicks < JOIN_DELAY_TICKS || now - lastOpenMs < RETRY_MS) {
             return;
         }
         if (now < readyAt(client)) {
@@ -117,7 +117,7 @@ final class CelestialRewardsController {
         autoOpened = false;
         finished = true;
         if (close) {
-            client.setScreen(null);
+            McCompat.setScreen(client, null);
         }
     }
 

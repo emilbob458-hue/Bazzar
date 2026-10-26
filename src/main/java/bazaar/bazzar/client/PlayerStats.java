@@ -110,7 +110,7 @@ final class PlayerStats {
         }
         Component message;
         while ((message = MESSAGES.poll()) != null) {
-            client.player.displayClientMessage(message, false);
+            McCompat.chat(client.player, message);
         }
     }
 

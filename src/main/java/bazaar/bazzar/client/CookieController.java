@@ -460,10 +460,7 @@ public final class CookieController {
         String text = SbText.stripFormattingCodes(message).trim();
         if (COOKIE_OFF_PATTERN.matcher(text).find()) {
             afkDisableType = null;
-            client.player.displayClientMessage(
-                    prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")),
-                    false
-            );
+            McCompat.chat(client.player, prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")));
             return;
         }
         if (!COOKIE_SET_PATTERN.matcher(text).find()) {
@@ -476,10 +473,7 @@ public final class CookieController {
             return;
         }
         afkDisableType = null;
-        client.player.displayClientMessage(
-                prefix().append(Component.literal("AFK for 3 min, couldn't disable your cookie. Turn it off in /cookie.")),
-                false
-        );
+        McCompat.chat(client.player, prefix().append(Component.literal("AFK for 3 min, couldn't disable your cookie. Turn it off in /cookie.")));
     }
 
     // No chat reply in time, so go by the cookie bossbar instead.
@@ -491,10 +485,7 @@ public final class CookieController {
             if (isCelestialBoostActive(client)) {
                 return;
             }
-            client.player.displayClientMessage(
-                    prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")),
-                    false
-            );
+            McCompat.chat(client.player, prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")));
             return;
         }
         if (!afkDisableRetried) {
@@ -505,10 +496,7 @@ public final class CookieController {
             return;
         }
         afkDisableType = null;
-        client.player.displayClientMessage(
-                prefix().append(Component.literal("AFK for 3 min, couldn't disable your cookie. Turn it off in /cookie.")),
-                false
-        );
+        McCompat.chat(client.player, prefix().append(Component.literal("AFK for 3 min, couldn't disable your cookie. Turn it off in /cookie.")));
     }
 
     static String nextCookieTierDown(String current) {
@@ -690,7 +678,7 @@ public final class CookieController {
         }
         lastCelestialCheckMs = now;
         try {
-            BossHealthOverlay overlay = client.gui.getBossOverlay();
+            BossHealthOverlay overlay = McCompat.bossOverlay(client);
             if (overlay == null) {
                 lastCelestialActive = false;
                 return false;
@@ -847,9 +835,7 @@ public final class CookieController {
             return;
         }
         MutableComponent title = Component.literal("CELESTIAL").withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD);
-        client.gui.setTimes(5, 60, 5);
-        client.gui.setSubtitle(Component.empty());
-        client.gui.setTitle(title);
+        McCompat.showTitle(client, 5, 60, 5, title);
     }
 
     private static boolean disableActiveCookie(Minecraft client) {
@@ -874,7 +860,7 @@ public final class CookieController {
 
     private static String detectActiveCookieFromBossbar(Minecraft client) {
         try {
-            BossHealthOverlay overlay = client.gui.getBossOverlay();
+            BossHealthOverlay overlay = McCompat.bossOverlay(client);
             if (overlay == null) {
                 return null;
             }

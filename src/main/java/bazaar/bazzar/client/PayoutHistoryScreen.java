@@ -194,7 +194,7 @@ final class PayoutHistoryScreen extends Screen {
 
     @Override
     public void onClose() {
-        Minecraft.getInstance().setScreen(parent);
+        McCompat.setScreen(Minecraft.getInstance(), parent);
     }
 
     private static boolean isUnpaid(PayoutLog.Entry entry, long nowMs) {

@@ -83,7 +83,7 @@ public final class ScoreboardOverlay {
 
     static void render(GuiGraphics graphics) {
         Minecraft client = Minecraft.getInstance();
-        if (client == null || client.level == null || client.player == null || client.options.hideGui) {
+        if (client == null || client.level == null || client.player == null || McCompat.hudHidden(client)) {
             return;
         }
         if (!BazzarConfig.load().scoreboardGlowEnabled) {
@@ -187,7 +187,7 @@ public final class ScoreboardOverlay {
         Objective objective = null;
         PlayerTeam playerTeam = scoreboard.getPlayersTeam(client.player.getScoreboardName());
         if (playerTeam != null) {
-            DisplaySlot slot = DisplaySlot.teamColorToSlot(playerTeam.getColor());
+            DisplaySlot slot = McCompat.teamSlot(playerTeam);
             if (slot != null) {
                 objective = scoreboard.getDisplayObjective(slot);
             }

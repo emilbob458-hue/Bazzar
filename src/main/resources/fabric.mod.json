@@ -27,5 +27,8 @@
     "fabricloader": ">=${loader_version}",
     "fabric-api": "*",
     "minecraft": "${minecraft_version_range}"
+  },
+  "custom": {
+    "bazzar:minecraft": "${minecraft_version}"
   }
 }

@@ -28,7 +28,7 @@ final class ScoreboardReader {
         Objective objective = null;
         PlayerTeam playerTeam = scoreboard.getPlayersTeam(client.player.getScoreboardName());
         if (playerTeam != null) {
-            DisplaySlot slot = DisplaySlot.teamColorToSlot(playerTeam.getColor());
+            DisplaySlot slot = McCompat.teamSlot(playerTeam);
             if (slot != null) {
                 objective = scoreboard.getDisplayObjective(slot);
             }

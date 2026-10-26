@@ -128,7 +128,7 @@ final class PvSearchScreen extends Screen {
                     Minecraft client = Minecraft.getInstance();
                     PvScanner.setHighlight(hit.name());
                     CommandSender.send(client, "pv " + hit.pageKey());
-                    client.setScreen(null);
+                    McCompat.setScreen(client, null);
                     return true;
                 }
             }

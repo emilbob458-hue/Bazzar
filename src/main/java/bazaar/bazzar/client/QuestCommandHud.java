@@ -177,7 +177,7 @@ final class QuestCommandHud {
             return;
         }
         CommandSender.send(client, command);
-        client.setScreen(null);
+        McCompat.setScreen(client, null);
     }
 
     static void onMouseDrag(Screen screen, MouseButtonEvent event, double deltaX, double deltaY) {

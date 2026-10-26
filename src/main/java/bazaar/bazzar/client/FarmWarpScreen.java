@@ -14,6 +14,7 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -345,7 +346,7 @@ final class FarmWarpScreen extends Screen {
             return;
         }
         if (closingSinceMs >= 0L && System.currentTimeMillis() - closingSinceMs >= 130L) {
-            Minecraft.getInstance().setScreen(null);
+            McCompat.setScreen(Minecraft.getInstance(), null);
         }
     }
 
@@ -409,7 +410,7 @@ final class FarmWarpScreen extends Screen {
     private void warpAndClose(String command) {
         Minecraft client = Minecraft.getInstance();
         CommandSender.send(client, command);
-        client.setScreen(null);
+        McCompat.setScreen(client, null);
     }
 
     private int hintY() {
