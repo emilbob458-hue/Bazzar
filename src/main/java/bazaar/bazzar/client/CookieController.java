@@ -67,6 +67,10 @@ public final class CookieController {
             Pattern.compile("(?i)rush\\s+chain\\s*\\(");
     private static final Pattern RUSH_COUNTER_PATTERN =
             Pattern.compile("(?i)\u26a1\\s*[\\d.,]+\\s*[a-z]{0,3}x\\s*\u26a1");
+    private static final Pattern COOKIE_SET_PATTERN =
+            Pattern.compile("(?i)^you\\s+set\\s+your\\s+active\\s+fortune\\s+cookie\\s+to\\s+(.+)$");
+    private static final Pattern COOKIE_OFF_PATTERN =
+            Pattern.compile("(?i)^(you\\s+deactivated\\s+your\\s+fortune\\s+cookie|your\\s+fortune\\s+cookie\\s+ran\\s+out)");
 
     private static long lastCelestialCheckMs = 0L;
     private static boolean lastCelestialActive = false;
@@ -87,6 +91,7 @@ public final class CookieController {
     private static String rushRestoreFrom = null;
     private static String lastUsedLabel = "";
     private static String lastCookieCommand = null;
+    private static String chatActiveCookie = null;
 
     private static long lastActivityMs = 0L;
     private static double lastActivityX;
@@ -190,7 +195,7 @@ public final class CookieController {
             return false;
         }
         try {
-            if (cookieType.equals(detectActiveCookieFromBossbar(client))) {
+            if (cookieType.equals(detectActiveCookie(client))) {
                 lastUsedLabel = cookieType;
                 lastCookieCommand = cookieType;
                 return true;
@@ -257,7 +262,7 @@ public final class CookieController {
         if (cookieType == null) {
             cookieType = COOKIE_SUSPICIOUS;
         }
-        String previous = detectActiveCookieFromBossbar(client);
+        String previous = detectActiveCookie(client);
         if (cookieType.equals(previous)) {
             lastRushTriggerMs = now;
             return;
@@ -294,7 +299,7 @@ public final class CookieController {
     }
 
     private static void restoreAfterRush(Minecraft client, String previous, String rushType) {
-        if (rushType == null || !rushType.equals(detectActiveCookieFromBossbar(client))) {
+        if (rushType == null || !rushType.equals(detectActiveCookie(client))) {
             return;
         }
         if (previous != null) {
@@ -330,6 +335,7 @@ public final class CookieController {
     }
 
     static void onChatMessage(Minecraft client, String message) {
+        trackActiveCookie(message);
         if (client != null && client.player != null && client.player.connection != null && message != null) {
             BazzarConfig.State state = BazzarConfig.load();
             if (state.cookieAutoClaimAllOnGift && COOKIE_GIFT_PATTERN.matcher(message).find()) {
@@ -363,7 +369,7 @@ public final class CookieController {
             return;
         }
         // /cookie toggles, so stepping down onto the cookie that's already running would turn it off.
-        String active = detectActiveCookieFromBossbar(client);
+        String active = detectActiveCookie(client);
         if (nextCookie.equals(active) || (rushCookiePending && nextCookie.equals(rushPreviousCookie))) {
             lastUsedLabel = nextCookie;
             lastCookieCommand = nextCookie;
@@ -381,6 +387,22 @@ public final class CookieController {
         if (rushCookiePending) {
             logRush("  -> no " + rushCookieType + " cookies, using " + nextCookie);
             rushCookieType = nextCookie;
+        }
+    }
+
+    private static void trackActiveCookie(String message) {
+        if (message == null) {
+            return;
+        }
+        String text = SbText.stripFormattingCodes(message).trim();
+        var set = COOKIE_SET_PATTERN.matcher(text);
+        if (set.find()) {
+            String type = normalizeCookieType(set.group(1));
+            if (type != null) {
+                chatActiveCookie = type;
+            }
+        } else if (COOKIE_OFF_PATTERN.matcher(text).find()) {
+            chatActiveCookie = null;
         }
     }
 
@@ -723,7 +745,7 @@ public final class CookieController {
         if (client == null || client.player == null || client.player.connection == null || client.gui == null) {
             return false;
         }
-        String activeCookie = detectActiveCookieFromBossbar(client);
+        String activeCookie = detectActiveCookie(client);
         if (activeCookie == null || activeCookie.isBlank()) {
             return false;
         }
@@ -731,6 +753,12 @@ public final class CookieController {
         lastUsedLabel = "disabled " + activeCookie;
         lastCookieCommand = null;
         return true;
+    }
+
+    // The cookie bossbar isn't always readable (e.g. during a celestial boost), so fall back to what chat last said.
+    private static String detectActiveCookie(Minecraft client) {
+        String fromBossbar = detectActiveCookieFromBossbar(client);
+        return fromBossbar != null ? fromBossbar : chatActiveCookie;
     }
 
     private static String detectActiveCookieFromBossbar(Minecraft client) {
