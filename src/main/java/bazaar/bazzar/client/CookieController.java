@@ -55,7 +55,7 @@ public final class CookieController {
     private static final long CELESTIAL_DEBOUNCE_MS = 200L;
     private static final long CLAIMALL_COOLDOWN_MS = 3000L;
     private static final long RUSH_TRIGGER_COOLDOWN_MS = 10_000L;
-    private static final long AFK_DISABLE_MS = 3 * 60_000L;
+    private static final long AFK_DISABLE_MS = 60_000L;
     private static final long AFK_DISABLE_REPLY_MS = 5_000L;
     private static final long RUSH_RESTORE_TIMEOUT_MS = 30_000L;
     private static final long RUSH_RESTORE_CHECK_MS = 2_500L;
@@ -105,6 +105,7 @@ public final class CookieController {
     private static String afkDisableType = null;
     private static long afkDisableSentMs = 0L;
     private static boolean afkDisableRetried = false;
+    private static boolean inAfkBubble = false;
 
     private CookieController() {
     }
@@ -222,6 +223,10 @@ public final class CookieController {
         if (text == null || text.isBlank()) {
             return;
         }
+        if (SbText.normalizeText(text).replaceAll("[^a-z]", "").contains("afkbubble")) {
+            inAfkBubble = true;
+            return;
+        }
         String lower = text.toLowerCase(Locale.ROOT);
         boolean counter = RUSH_COUNTER_PATTERN.matcher(text).find();
         if (!counter) {
@@ -256,7 +261,7 @@ public final class CookieController {
         if (state == null || !state.cookieAutoOnRush) {
             return;
         }
-        if (client == null || client.player == null || client.player.connection == null) {
+        if (client == null || client.player == null || client.player.connection == null || inAfkBubble) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -349,7 +354,36 @@ public final class CookieController {
         return COOKIE_TIERS.clone();
     }
 
+    static void onCommandSent(String command) {
+        if (command == null) {
+            return;
+        }
+        String trimmed = command.trim().toLowerCase(Locale.ROOT);
+        if (trimmed.equals("afk") || trimmed.startsWith("afk ")) {
+            inAfkBubble = true;
+        }
+    }
+
+    // The bubble shows an "AFK BUBBLE" title (see onTitle), milestones while in it and a summary in chat when it ends.
+    private static void trackAfkBubble(String message) {
+        if (message == null) {
+            return;
+        }
+        if (message.contains("AFK Bubble Summary")) {
+            leaveAfkBubble();
+        } else if (message.contains("AFK MILESTONE") || message.contains("the Bubble is farming")) {
+            inAfkBubble = true;
+        }
+    }
+
+    private static void leaveAfkBubble() {
+        inAfkBubble = false;
+        lastActivityMs = System.currentTimeMillis();
+        afkCookieDisabled = false;
+    }
+
     static void onChatMessage(Minecraft client, String message) {
+        trackAfkBubble(message);
         trackActiveCookie(message);
         checkAfkDisableReply(client, message);
         checkLateRushSwitch(client, message);
@@ -460,7 +494,7 @@ public final class CookieController {
         String text = SbText.stripFormattingCodes(message).trim();
         if (COOKIE_OFF_PATTERN.matcher(text).find()) {
             afkDisableType = null;
-            McCompat.chat(client.player, prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")));
+            McCompat.chat(client.player, prefix().append(Component.literal("AFK for 1 min, disabled your active cookie.")));
             return;
         }
         if (!COOKIE_SET_PATTERN.matcher(text).find()) {
@@ -473,7 +507,7 @@ public final class CookieController {
             return;
         }
         afkDisableType = null;
-        McCompat.chat(client.player, prefix().append(Component.literal("AFK for 3 min, couldn't disable your cookie. Turn it off in /cookie.")));
+        McCompat.chat(client.player, prefix().append(Component.literal("AFK for 1 min, couldn't disable your cookie. Turn it off in /cookie.")));
     }
 
     // No chat reply in time, so go by the cookie bossbar instead.
@@ -485,7 +519,7 @@ public final class CookieController {
             if (isCelestialBoostActive(client)) {
                 return;
             }
-            McCompat.chat(client.player, prefix().append(Component.literal("AFK for 3 min, disabled your active cookie.")));
+            McCompat.chat(client.player, prefix().append(Component.literal("AFK for 1 min, disabled your active cookie.")));
             return;
         }
         if (!afkDisableRetried) {
@@ -496,7 +530,7 @@ public final class CookieController {
             return;
         }
         afkDisableType = null;
-        McCompat.chat(client.player, prefix().append(Component.literal("AFK for 3 min, couldn't disable your cookie. Turn it off in /cookie.")));
+        McCompat.chat(client.player, prefix().append(Component.literal("AFK for 1 min, couldn't disable your cookie. Turn it off in /cookie.")));
     }
 
     static String nextCookieTierDown(String current) {
@@ -723,6 +757,12 @@ public final class CookieController {
         if (client == null || client.player == null || client.player.connection == null) {
             return;
         }
+        if (inAfkBubble && (client.getCurrentServer() == null || movementKeyDown(client))) {
+            leaveAfkBubble();
+        }
+        if (inAfkBubble) {
+            return;
+        }
         long now = System.currentTimeMillis();
 
         if (rushCookiePending && now - rushStartedMs >= RUSH_RESTORE_TIMEOUT_MS) {
@@ -802,18 +842,22 @@ public final class CookieController {
         }
     }
 
-    // Only the player's own input counts, so getting launched or knocked around while AFK doesn't reset it.
-    private static boolean updateAfkState(Minecraft client, long now) {
-        var player = client.player;
+    private static boolean movementKeyDown(Minecraft client) {
         var options = client.options;
-        boolean moved = player.getYRot() != lastActivityYaw
-                || player.getXRot() != lastActivityPitch
-                || options.keyUp.isDown()
+        return options.keyUp.isDown()
                 || options.keyDown.isDown()
                 || options.keyLeft.isDown()
                 || options.keyRight.isDown()
                 || options.keyJump.isDown()
                 || options.keyShift.isDown();
+    }
+
+    // Only the player's own input counts, so getting launched or knocked around while AFK doesn't reset it.
+    private static boolean updateAfkState(Minecraft client, long now) {
+        var player = client.player;
+        boolean moved = player.getYRot() != lastActivityYaw
+                || player.getXRot() != lastActivityPitch
+                || movementKeyDown(client);
         if (moved || lastActivityMs == 0L) {
             lastActivityYaw = player.getYRot();
             lastActivityPitch = player.getXRot();
@@ -914,7 +958,7 @@ public final class CookieController {
     }
 
     private static MutableComponent prefix() {
-        return Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA);
+        return BazaarChat.prefix();
     }
 
     enum CookieMode {

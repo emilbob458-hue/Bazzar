@@ -357,8 +357,8 @@ final class PinnedBazaarHud {
         if (BazaarFlipScanner.isBlacklisted(name, itemId)) {
             Minecraft client = Minecraft.getInstance();
             if (client != null && client.player != null) {
-                McCompat.chat(client.player, Component.literal("[Bazaar] " + name + " is blacklisted. Use /blacklist " + name + " to unblacklist.")
-                        .withStyle(ChatFormatting.RED));
+                McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal(name + " is blacklisted. Use /blacklist " + name + " to unblacklist.")
+                        .withStyle(ChatFormatting.RED)));
             }
             return;
         }

@@ -264,8 +264,8 @@ final class FarmMobScanner {
             String message = collected.isEmpty()
                     ? "Could not read farm mobs from /" + WARP_COMMAND + "."
                     : "Saved mobs for " + collected.size() + " farms.";
-            McCompat.chat(client.player, Component.literal("[Bazaar] " + message)
-                    .withStyle(collected.isEmpty() ? ChatFormatting.RED : ChatFormatting.AQUA));
+            McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal(message)
+                    .withStyle(collected.isEmpty() ? ChatFormatting.RED : ChatFormatting.AQUA)));
         }
         state = State.IDLE;
         waitTicks = 0;

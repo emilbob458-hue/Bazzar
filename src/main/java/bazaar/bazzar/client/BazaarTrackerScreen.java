@@ -1074,7 +1074,7 @@ final class BazaarTrackerScreen extends Screen {
                 contentX,
                 settingsTop() + 2 * miscRowStep(),
                 "AFK Failsafe",
-                "Disable the active cookie after 3 min without moving",
+                "Disable the active cookie after 1 min without moving",
                 miscAfkToggleButton(),
                 state.cookieAfkFailsafeEnabled,
                 mouseX,
@@ -2435,8 +2435,8 @@ final class BazaarTrackerScreen extends Screen {
         }
         if (client.player != null) {
             String tabName = activeMainTab == MainTab.GEM_FLIPS ? "Gem Flips" : "Tracker";
-            McCompat.chat(client.player, Component.literal("[Bazaar] Started bazaar scan for " + tabName + ". Reopen the tracker when it finishes.")
-                    .withStyle(ChatFormatting.AQUA));
+            McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal("Started bazaar scan for " + tabName + ". Reopen the tracker when it finishes.")
+                    .withStyle(ChatFormatting.AQUA)));
         }
         McCompat.setScreen(client, null);
     }

@@ -208,6 +208,9 @@ final class BazzarConfig {
         if (!root.has("cookieAfkFailsafeEnabled")) {
             loaded.cookieAfkFailsafeEnabled = defaults.cookieAfkFailsafeEnabled;
         }
+        if (!root.has("farmQuestsEnabled")) {
+            loaded.farmQuestsEnabled = defaults.farmQuestsEnabled;
+        }
         if (!root.has("scoreboardGlowEnabled")) {
             loaded.scoreboardGlowEnabled = defaults.scoreboardGlowEnabled;
         }
@@ -308,6 +311,7 @@ final class BazzarConfig {
         double currentMulti = 1.0d;
         List<String> cropBlacklist = new ArrayList<>();
         List<String> farmFavorites = new ArrayList<>();
+        boolean farmQuestsEnabled = true;
         boolean autoBazaarScanEnabled = false;
         int autoBazaarScanIntervalSeconds = 120;
         int shadyHudX = 8;

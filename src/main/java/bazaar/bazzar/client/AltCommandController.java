@@ -42,7 +42,7 @@ final class AltCommandController {
         boolean payer = ShardPayController.isLocalPayer(client, state);
         boolean owner = ShardPayController.isLocalOwner(client, state);
         String role = owner ? "owner" : payer ? "payer" : "not listed";
-        StringBuilder text = new StringBuilder("[Bazaar] /alts status, this account: " + role);
+        StringBuilder text = new StringBuilder("/alts status, this account: " + role);
         if (shared.broadcastIssuedMs > 0L) {
             long ago = (System.currentTimeMillis() - shared.broadcastIssuedMs) / 1000L;
             text.append(" | last broadcast: /").append(shared.broadcastCommand)
@@ -57,7 +57,7 @@ final class AltCommandController {
             long ago = (System.currentTimeMillis() - lastReceivedMs) / 1000L;
             text.append(" | this account last ran: /").append(lastReceivedCommand).append(" ").append(ago).append("s ago");
         }
-        context.getSource().sendFeedback(Component.literal(text.toString()).withStyle(ChatFormatting.AQUA));
+        context.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal(text.toString()).withStyle(ChatFormatting.AQUA)));
         return 1;
     }
 
@@ -66,7 +66,7 @@ final class AltCommandController {
         String command = StringArgumentType.getString(context, "command");
         if (command == null || command.isBlank()) {
             context.getSource().sendFeedback(
-                    Component.literal("[Bazaar] Usage: /alts <command>").withStyle(ChatFormatting.RED));
+                    BazaarChat.prefix().append(Component.literal("Usage: /alts <command>").withStyle(ChatFormatting.RED)));
             return 0;
         }
         String trimmed = command.trim();
@@ -75,7 +75,7 @@ final class AltCommandController {
         }
         if (trimmed.isBlank()) {
             context.getSource().sendFeedback(
-                    Component.literal("[Bazaar] Usage: /alts <command>").withStyle(ChatFormatting.RED));
+                    BazaarChat.prefix().append(Component.literal("Usage: /alts <command>").withStyle(ChatFormatting.RED)));
             return 0;
         }
         String from = client != null && client.player != null
@@ -91,7 +91,7 @@ final class AltCommandController {
         });
         pendingReportIssuedMs = issuedMs;
         context.getSource().sendFeedback(
-                Component.literal("[Bazaar] Sent to alts on this PC: /" + trimmed).withStyle(ChatFormatting.AQUA));
+                BazaarChat.prefix().append(Component.literal("Sent to alts on this PC: /" + trimmed).withStyle(ChatFormatting.AQUA)));
         return 1;
     }
 
@@ -153,8 +153,9 @@ final class AltCommandController {
         }
         ran.sort(String.CASE_INSENSITIVE_ORDER);
         String text = ran.isEmpty()
-                ? "[Bazaar] No alts ran the broadcast. Are they on the newest jar? Type /alts on an alt to check its status."
-                : "[Bazaar] Alts ran it (" + ran.size() + "): " + String.join(", ", ran);
-        McCompat.chat(client.player, Component.literal(text).withStyle(ran.isEmpty() ? ChatFormatting.YELLOW : ChatFormatting.AQUA));
+                ? "No alts ran the broadcast. Are they on the newest jar? Type /alts on an alt to check its status."
+                : "Alts ran it (" + ran.size() + "): " + String.join(", ", ran);
+        McCompat.chat(client.player, BazaarChat.prefix()
+                .append(Component.literal(text).withStyle(ran.isEmpty() ? ChatFormatting.YELLOW : ChatFormatting.AQUA)));
     }
 }

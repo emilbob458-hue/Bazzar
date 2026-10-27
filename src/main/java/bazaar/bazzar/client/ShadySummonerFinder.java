@@ -211,7 +211,7 @@ final class ShadySummonerFinder {
         if (client == null || client.player == null) {
             return;
         }
-        McCompat.chat(client.player, Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA)
+        McCompat.chat(client.player, BazaarChat.prefix()
                 .append(Component.literal(message).withStyle(ChatFormatting.AQUA)));
     }
 

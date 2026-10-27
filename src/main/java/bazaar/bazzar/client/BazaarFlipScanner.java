@@ -285,8 +285,6 @@ final class BazaarFlipScanner {
         sendSummary(feedback, filtered);
         sendMarketRateAlerts(feedback, filtered);
         sendTopHighestSell(feedback, filtered);
-        feedback.accept(prefix().append(Component.literal("================================")
-                .withStyle(ChatFormatting.DARK_GRAY)));
     }
 
     private static void sendSummary(Consumer<Component> feedback, List<FlipCandidate> candidates) {
@@ -301,29 +299,26 @@ final class BazaarFlipScanner {
                 .max(Comparator.comparingDouble(c -> c.sell))
                 .orElse(null);
 
-        feedback.accept(prefix().append(Component.literal("================================")
-                .withStyle(ChatFormatting.DARK_GRAY)));
-        feedback.accept(prefix().append(Component.literal("Bazaar Scan")
-                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD)));
+        feedback.accept(BazaarChat.gradient("✦ BAZAAR SCAN ✦", true));
 
         if (cheapestBuy != null) {
-            feedback.accept(prefix().append(Component.literal("Cheapest Buy: ")
-                    .withStyle(ChatFormatting.GRAY))
-                    .append(Component.literal(cheapestBuy.name + " " + format(cheapestBuy.buy))
-                            .withStyle(ChatFormatting.GREEN)));
+            feedback.accept(tag(" BUY  ", ChatFormatting.GREEN)
+                    .append(Component.literal(cheapestBuy.name + " ").withStyle(ChatFormatting.WHITE))
+                    .append(Component.literal("→ ").withStyle(ChatFormatting.DARK_GRAY))
+                    .append(Component.literal(format(cheapestBuy.buy)).withStyle(ChatFormatting.GREEN)));
         } else {
-            feedback.accept(prefix().append(Component.literal("Cheapest Buy: n/a")
-                    .withStyle(ChatFormatting.DARK_GRAY)));
+            feedback.accept(tag(" BUY  ", ChatFormatting.GREEN)
+                    .append(Component.literal("n/a").withStyle(ChatFormatting.DARK_GRAY)));
         }
 
         if (bestSell != null) {
-            feedback.accept(prefix().append(Component.literal("Best Sell: ")
-                    .withStyle(ChatFormatting.GRAY))
-                    .append(Component.literal(bestSell.name + " " + format(bestSell.sell))
-                            .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)));
+            feedback.accept(tag(" SELL ", ChatFormatting.AQUA)
+                    .append(Component.literal(bestSell.name + " ").withStyle(ChatFormatting.WHITE))
+                    .append(Component.literal("→ ").withStyle(ChatFormatting.DARK_GRAY))
+                    .append(Component.literal(format(bestSell.sell)).withStyle(ChatFormatting.AQUA)));
         } else {
-            feedback.accept(prefix().append(Component.literal("Best Sell: n/a")
-                    .withStyle(ChatFormatting.DARK_GRAY)));
+            feedback.accept(tag(" SELL ", ChatFormatting.AQUA)
+                    .append(Component.literal("n/a").withStyle(ChatFormatting.DARK_GRAY)));
         }
     }
 
@@ -339,17 +334,18 @@ final class BazaarFlipScanner {
             return;
         }
 
-        feedback.accept(prefix().append(Component.literal("Top 5 Highest Sell")
-                .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)));
-
         int limit = Math.min(5, highestSell.size());
         for (int i = 0; i < limit; i++) {
             FlipCandidate entry = highestSell.get(i);
-            boolean topOne = i == 0;
-            feedback.accept(prefix().append(Component.literal((i + 1) + ". ")
-                    .withStyle(ChatFormatting.DARK_GRAY))
-                    .append(Component.literal(entry.name + " " + format(entry.sell))
-                            .withStyle(topOne ? ChatFormatting.BOLD : ChatFormatting.WHITE)));
+            if (i == 0) {
+                feedback.accept(Component.empty().append(BazaarChat.colored(" TOP  ", BazaarChat.GOLD).withStyle(ChatFormatting.BOLD))
+                        .append(Component.literal(entry.name + " ").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD))
+                        .append(BazaarChat.colored(format(entry.sell), BazaarChat.GOLD)));
+            } else {
+                feedback.accept(Component.literal("      ")
+                        .append(Component.literal(entry.name + " ").withStyle(ChatFormatting.WHITE))
+                        .append(Component.literal(format(entry.sell)).withStyle(ChatFormatting.GRAY)));
+            }
         }
     }
 
@@ -363,14 +359,21 @@ final class BazaarFlipScanner {
             return;
         }
 
+        MutableComponent line = tag(" HOT  ", ChatFormatting.RED);
         int limit = Math.min(5, alerts.size());
         for (int i = 0; i < limit; i++) {
             FlipCandidate entry = alerts.get(i);
-            feedback.accept(prefix().append(Component.literal("Market Rate > 100%: ")
-                    .withStyle(ChatFormatting.RED))
-                    .append(Component.literal(entry.name + " " + formatPercent(entry.marketRate))
-                            .withStyle(ChatFormatting.GOLD)));
+            if (i > 0) {
+                line.append(Component.literal(" · ").withStyle(ChatFormatting.DARK_GRAY));
+            }
+            line.append(Component.literal(entry.name + " " + formatPercent(entry.marketRate))
+                    .withStyle(ChatFormatting.GOLD));
         }
+        feedback.accept(line);
+    }
+
+    private static MutableComponent tag(String label, ChatFormatting color) {
+        return Component.empty().append(Component.literal(label).withStyle(color, ChatFormatting.BOLD));
     }
 
     private static String format(Double value) {
@@ -398,7 +401,7 @@ final class BazaarFlipScanner {
     }
 
     private static MutableComponent prefix() {
-        return Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA);
+        return BazaarChat.prefix();
     }
 
     static boolean isBlacklisted(String name, String itemId) {

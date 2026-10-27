@@ -443,8 +443,7 @@ final class PublicPresets {
     private static void say(Component message) {
         Minecraft client = Minecraft.getInstance();
         if (client.player != null) {
-            McCompat.chat(client.player, Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA)
-                    .append(message));
+            McCompat.chat(client.player, BazaarChat.prefix().append(message));
         }
     }
 }

@@ -111,8 +111,8 @@ public class BazzarClient implements ClientModInitializer {
             while (toggleHudKey.consumeClick()) {
                 PinnedBazaarHud.toggleVisibility();
                 if (client.player != null) {
-                    McCompat.chat(client.player, net.minecraft.network.chat.Component.literal(
-                            PinnedBazaarHud.isVisible() ? "[Bazaar] HUD shown" : "[Bazaar] HUD hidden"));
+                    McCompat.chat(client.player, BazaarChat.prefix().append(net.minecraft.network.chat.Component.literal(
+                            PinnedBazaarHud.isVisible() ? "HUD shown" : "HUD hidden")));
                 }
             }
             while (trackerGuiKey.consumeClick()) {
@@ -227,6 +227,7 @@ public class BazzarClient implements ClientModInitializer {
         });
 
         ClientSendMessageEvents.COMMAND.register(CelestialBoosterReminder::onCommandSent);
+        ClientSendMessageEvents.COMMAND.register(CookieController::onCommandSent);
         net.fabricmc.fabric.api.event.client.player.ClientPlayerBlockBreakEvents.AFTER.register(
                 (level, player, pos, state) -> BlockBreakCounter.onOwnBreak(pos));
 

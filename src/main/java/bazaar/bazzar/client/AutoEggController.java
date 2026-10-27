@@ -39,7 +39,7 @@ final class AutoEggController {
         }
         String line = rawLine.trim();
 
-        if (line.startsWith("[Bazaar]")) {
+        if (line.startsWith("[Bazaar]") || line.startsWith(BazaarChat.TAG)) {
             return;
         }
 

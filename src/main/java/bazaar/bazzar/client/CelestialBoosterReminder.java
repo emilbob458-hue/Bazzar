@@ -78,8 +78,8 @@ final class CelestialBoosterReminder {
             McCompat.showTitle(client, 5, 60, 10, title);
         }
         client.player.playSound(SoundEvents.PLAYER_LEVELUP, 0.8f, 1.2f);
-        McCompat.chat(client.player, Component.literal("[Bazaar] /celestialbooster is off cooldown, use it now!")
-                .withStyle(ChatFormatting.AQUA));
+        McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal("/celestialbooster is off cooldown, use it now!")
+                .withStyle(ChatFormatting.AQUA)));
     }
 
     private static void setReminder(long remainingMs) {

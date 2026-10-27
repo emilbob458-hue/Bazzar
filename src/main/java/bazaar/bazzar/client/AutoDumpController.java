@@ -138,8 +138,8 @@ final class AutoDumpController {
 
     private static void finish(Minecraft client, String message, boolean pvFull) {
         McCompat.setScreen(client, null);
-        McCompat.chat(client.player, Component.literal("[Bazaar] " + message)
-                .withStyle(pvFull ? ChatFormatting.YELLOW : ChatFormatting.AQUA));
+        McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal(message)
+                .withStyle(pvFull ? ChatFormatting.YELLOW : ChatFormatting.AQUA)));
         state = State.IDLE;
         nextAllowedMs = System.currentTimeMillis() + (pvFull ? FULL_PV_COOLDOWN_MS : RETRY_COOLDOWN_MS);
     }

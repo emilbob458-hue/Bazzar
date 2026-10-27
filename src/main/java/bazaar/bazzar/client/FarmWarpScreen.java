@@ -37,6 +37,8 @@ final class FarmWarpScreen extends Screen {
     private static final String FAVORITE_HINT = "Right click a crop to favorite it";
     private static final String SCAN_LABEL = "Scan mobs";
     private static final String RESCAN_LABEL = "Rescan mobs";
+    private static final String QUESTS_ON_LABEL = "Quests: On";
+    private static final String QUESTS_OFF_LABEL = "Quests: Off";
     private static final int FAVORITE_GOLD = 0xFFD75A;
     private static final int TARGET_ROW_H = 18;
     private static final int MAX_TARGETS = 8;
@@ -44,6 +46,8 @@ final class FarmWarpScreen extends Screen {
     private static final int MUTED = 0xFF8E97A6;
     private static final int DONE_GREEN = 0xFF86EFAC;
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("([\\d.,]+\\s*[kmbt]?)\\s*/\\s*([\\d.,]+\\s*[kmbt]?)");
+    // Scoreboard pins read "3.40T Purple Paint (2.94T)": amount needed, then what you have in brackets.
+    private static final Pattern HAVE_PATTERN = Pattern.compile("\\(([\\d.,]+\\s*[a-z]{0,4})\\)");
 
     private static final int HEADER_TEXT = 0xFFFFFFFF;
 
@@ -57,6 +61,7 @@ final class FarmWarpScreen extends Screen {
     private Component favoritesLabel;
     private Component targetsLabel;
     private int refreshTicks;
+    private boolean questsEnabled = true;
     private final Map<WorldTab, List<FarmEntry>> worldCrops = new EnumMap<>(WorldTab.class);
     private final List<FavEntry> favorites = new ArrayList<>();
     private final Set<String> favoriteCommands = new HashSet<>();
@@ -79,6 +84,15 @@ final class FarmWarpScreen extends Screen {
         favoritesLabel = BazzarUi.gradientText("★ Favorites", FAVORITE_GOLD, 0xE39B3A, true);
         targetsLabel = BazzarUi.gradientText("⚑ Quests & Pinned", 0x7DD3FC, 0xB28CFF, true);
         reloadFavorites();
+        questsEnabled = BazzarConfig.load().farmQuestsEnabled;
+        reloadTargets();
+    }
+
+    private void toggleQuests() {
+        BazzarConfig.State state = BazzarConfig.load();
+        state.farmQuestsEnabled = !state.farmQuestsEnabled;
+        BazzarConfig.save(state);
+        questsEnabled = state.farmQuestsEnabled;
         reloadTargets();
     }
 
@@ -89,6 +103,10 @@ final class FarmWarpScreen extends Screen {
 
     private void reloadTargets() {
         targets.clear();
+        if (!questsEnabled) {
+            updatePanelWidth();
+            return;
+        }
         Set<String> seen = new HashSet<>();
         for (GuildQuestScanner.QuestEntry quest : GuildQuestScanner.getLastEntries()) {
             String text = SbText.normalizeText(quest.name());
@@ -116,8 +134,12 @@ final class FarmWarpScreen extends Screen {
                 break;
             }
             Matcher matcher = PROGRESS_PATTERN.matcher(text);
+            Matcher have = HAVE_PATTERN.matcher(text);
             if (matcher.find()) {
                 addTarget(text, "Pin", SbText.firstAmount(matcher.group(1)), SbText.firstAmount(matcher.group(2)), seen);
+            } else if (have.find()) {
+                String needed = text.substring(0, have.start());
+                addTarget(text, "Pin", SbText.firstAmount(have.group(1)), SbText.firstAmount(needed), seen);
             } else {
                 addTarget(text, "Pin", -1d, SbText.firstAmount(text), seen);
             }
@@ -224,7 +246,8 @@ final class FarmWarpScreen extends Screen {
     private int contentWidth() {
         int hintW = font.width(WORLD_HINT);
         int needed = font.width(getTitle()) + 48;
-        needed = Math.max(needed, 16 + font.width(FAVORITE_HINT) + 12 + font.width(RESCAN_LABEL) + 10);
+        needed = Math.max(needed, 16 + font.width(FAVORITE_HINT) + 12 + font.width(QUESTS_OFF_LABEL) + 10
+                + font.width(RESCAN_LABEL) + 10);
         WorldTab[] worlds = WorldTab.values();
         for (int i = 0; i < worlds.length; i++) {
             int nameRowW = 16 + font.width(worldLabels[i]) + 12 + hintW + 10;
@@ -456,6 +479,10 @@ final class FarmWarpScreen extends Screen {
         String scanLabel = FarmMobScanner.hasData() ? RESCAN_LABEL : SCAN_LABEL;
         int scanColor = isInside(mouseX, mouseY, scan) ? 0xFF000000 | (theme.light() & 0xFFFFFF) : 0xFF8E97A6;
         graphics.drawString(font, scanLabel, scan.x(), hintY(), scanColor, false);
+        ButtonBounds quests = questsBounds();
+        int questsColor = isInside(mouseX, mouseY, quests) ? 0xFF000000 | (theme.light() & 0xFFFFFF)
+                : questsEnabled ? DONE_GREEN : MUTED;
+        graphics.drawString(font, questsEnabled ? QUESTS_ON_LABEL : QUESTS_OFF_LABEL, quests.x(), hintY(), questsColor, false);
 
         if (hoveredCropLabel != null) {
             drawMiniTooltip(graphics, hoveredCropLabel, mobLines(hoveredFarm), mouseX, mouseY);
@@ -538,6 +565,10 @@ final class FarmWarpScreen extends Screen {
             FarmMobScanner.start(Minecraft.getInstance(), true);
             return true;
         }
+        if (!rightClick && isInside(mouseX, mouseY, questsBounds())) {
+            toggleQuests();
+            return true;
+        }
 
         for (int i = 0; i < favorites.size(); i++) {
             if (isInside(mouseX, mouseY, favIconX(i) - 2, favIconY(i) - 2, 20, 20)) {
@@ -605,6 +636,11 @@ final class FarmWarpScreen extends Screen {
     private ButtonBounds scanBounds() {
         int w = font.width(FarmMobScanner.hasData() ? RESCAN_LABEL : SCAN_LABEL);
         return new ButtonBounds(left + panelW - 10 - w, hintY() - 1, w, 11);
+    }
+
+    private ButtonBounds questsBounds() {
+        int w = font.width(questsEnabled ? QUESTS_ON_LABEL : QUESTS_OFF_LABEL);
+        return new ButtonBounds(scanBounds().x() - 10 - w, hintY() - 1, w, 11);
     }
 
     private int sectionY(int index) {

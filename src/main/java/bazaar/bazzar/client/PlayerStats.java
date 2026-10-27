@@ -288,6 +288,6 @@ final class PlayerStats {
     }
 
     private static MutableComponent prefix() {
-        return Component.literal("[Bazaar] ").withStyle(ChatFormatting.DARK_AQUA);
+        return BazaarChat.prefix();
     }
 }
