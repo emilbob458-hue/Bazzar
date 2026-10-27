@@ -55,8 +55,11 @@ final class AutoUpdater {
     private static final Path DISABLED = DIR.resolve("disabled");
     private static final Path HELPER_DIR = DIR.resolve("helper");
     private static final long RECHECK_MS = 30L * 60_000L;
+    private static final long REMIND_MS = 5L * 60_000L;
     private static final AtomicBoolean CHECKING = new AtomicBoolean();
     private static long nextCheckMs;
+    private static volatile String outdatedVersion;
+    private static volatile long nextRemindMs;
     private static final Queue<Component> MESSAGES = new ConcurrentLinkedQueue<>();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -78,25 +81,51 @@ final class AutoUpdater {
     static void start() {
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> applyPending());
         nextCheckMs = System.currentTimeMillis() + RECHECK_MS;
-        if (!Files.exists(DISABLED)) {
-            checkAsync(false);
-        }
+        checkAsync(false);
     }
 
     static void tick(Minecraft client) {
         long now = System.currentTimeMillis();
         if (now >= nextCheckMs) {
             nextCheckMs = now + RECHECK_MS;
-            if (!Files.exists(DISABLED)) {
-                checkAsync(false);
-            }
+            checkAsync(false);
         }
         if (client.player == null) {
             return;
         }
+        String outdated = outdatedVersion;
+        if (outdated != null && now >= nextRemindMs) {
+            nextRemindMs = now + REMIND_MS;
+            remind(outdated);
+        }
         Component message;
         while ((message = MESSAGES.poll()) != null) {
             McCompat.chat(client.player, message);
+        }
+    }
+
+    private static void remind(String latest) {
+        String current;
+        try {
+            current = currentVersion().getFriendlyString();
+        } catch (VersionParsingException e) {
+            current = "?";
+        }
+        String how;
+        if (Files.exists(DISABLED)) {
+            how = "Use /bazzarupdate on to update.";
+        } else if (Files.isRegularFile(PENDING_JAR)) {
+            how = "Restart Minecraft to update.";
+        } else {
+            how = "Use /bazzarupdate to download it.";
+        }
+        post("You are on Bazzar " + current + ", " + latest + " is out. " + how, ChatFormatting.YELLOW);
+    }
+
+    private static void markOutdated(String latest, boolean announced) {
+        if (!latest.equals(outdatedVersion)) {
+            nextRemindMs = System.currentTimeMillis() + (announced ? REMIND_MS : 0L);
+            outdatedVersion = latest;
         }
     }
 
@@ -183,6 +212,7 @@ final class AutoUpdater {
         Version latest = parseVersion(tag);
 
         if (latest.compareTo(current) <= 0) {
+            outdatedVersion = null;
             clearPending();
             if (manual) {
                 post("You are on the newest version (" + current.getFriendlyString() + ").", ChatFormatting.GREEN);
@@ -191,17 +221,19 @@ final class AutoUpdater {
         }
 
         String target = target();
-        String wanted = ("Bazzar-" + target + ".jar").toLowerCase(Locale.ROOT);
+        // Bazzar_v1.12_1.21.11.jar, or Bazzar-1.21.11.jar in v1.11.
+        String wanted = ("_" + target + ".jar").toLowerCase(Locale.ROOT);
+        String wantedOld = ("Bazzar-" + target + ".jar").toLowerCase(Locale.ROOT);
         JsonObject asset = null;
         JsonObject legacy = null;
         for (JsonElement element : release.getAsJsonArray("assets")) {
             JsonObject candidate = element.getAsJsonObject();
             String name = candidate.get("name").getAsString().toLowerCase(Locale.ROOT);
-            if (name.equals(wanted)) {
+            if ((name.startsWith("bazzar_v") && name.endsWith(wanted)) || name.equals(wantedOld)) {
                 asset = candidate;
                 break;
             }
-            if (legacy == null && name.endsWith(".jar") && !name.startsWith("bazzar-")) {
+            if (legacy == null && name.endsWith(".jar") && !name.startsWith("bazzar-") && !name.startsWith("bazzar_v")) {
                 legacy = candidate;
             }
         }
@@ -221,9 +253,23 @@ final class AutoUpdater {
             if (manual) {
                 post("Bazzar " + latest.getFriendlyString() + " is downloaded. Restart Minecraft to finish updating.", ChatFormatting.AQUA);
             }
+            markOutdated(latest.getFriendlyString(), manual);
+            return;
+        }
+        if (!manual && Files.exists(DISABLED)) {
+            markOutdated(latest.getFriendlyString(), false);
             return;
         }
 
+        try {
+            download(asset, expectedHash, latest);
+        } catch (Exception e) {
+            markOutdated(latest.getFriendlyString(), false);
+            throw e;
+        }
+    }
+
+    private static void download(JsonObject asset, String expectedHash, Version latest) throws Exception {
         Files.createDirectories(DIR);
         HttpRequest download = HttpRequest.newBuilder(URI.create(asset.get("browser_download_url").getAsString()))
                 .timeout(Duration.ofMinutes(2))
@@ -245,6 +291,7 @@ final class AutoUpdater {
         Files.move(PART_JAR, PENDING_JAR, StandardCopyOption.REPLACE_EXISTING);
         Files.writeString(PENDING_VERSION, latest.getFriendlyString());
         post("Bazzar " + latest.getFriendlyString() + " downloaded. Restart Minecraft to use it.", ChatFormatting.AQUA);
+        markOutdated(latest.getFriendlyString(), true);
     }
 
     private static void applyPending() {
