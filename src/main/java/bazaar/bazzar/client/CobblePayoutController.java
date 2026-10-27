@@ -71,7 +71,16 @@ final class CobblePayoutController {
     }
 
     private static int runSetPrice(CommandContext<FabricClientCommandSource> context) {
-        String raw = StringArgumentType.getString(context, "price");
+        String raw = StringArgumentType.getString(context, "price").trim();
+        Boolean toggle = null;
+        String lower = raw.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(" on")) {
+            toggle = true;
+            raw = raw.substring(0, raw.length() - 3);
+        } else if (lower.endsWith(" off")) {
+            toggle = false;
+            raw = raw.substring(0, raw.length() - 4);
+        }
         Double parsed = parseCompactNumber(raw);
         if (parsed == null || parsed <= 0.0d) {
             context.getSource().sendFeedback(prefix()
@@ -85,10 +94,13 @@ final class CobblePayoutController {
                 .append(Component.literal("Cobble price set to ").withStyle(ChatFormatting.GREEN))
                 .append(Component.literal(SbText.formatCompact(parsed)).withStyle(ChatFormatting.GOLD))
                 .append(Component.literal(" per cobble.").withStyle(ChatFormatting.GREEN));
-        if (!state.cobblePayoutEnabled) {
+        if (toggle == null && !state.cobblePayoutEnabled) {
             feedback.append(Component.literal(" Auto pay is OFF, enable with /setcobble on").withStyle(ChatFormatting.YELLOW));
         }
         context.getSource().sendFeedback(feedback);
+        if (toggle != null) {
+            return runToggle(context, toggle);
+        }
         return 1;
     }
 

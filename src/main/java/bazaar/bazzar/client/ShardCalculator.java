@@ -157,7 +157,16 @@ final class ShardCalculator {
     }
 
     private static int runSetGemPrice(CommandContext<FabricClientCommandSource> context) {
-        String raw = StringArgumentType.getString(context, "price");
+        String raw = StringArgumentType.getString(context, "price").trim();
+        Boolean toggle = null;
+        String lower = raw.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(" on")) {
+            toggle = true;
+            raw = raw.substring(0, raw.length() - 3);
+        } else if (lower.endsWith(" off")) {
+            toggle = false;
+            raw = raw.substring(0, raw.length() - 4);
+        }
         Double parsed = parseCompactNumber(raw);
         if (parsed == null || parsed < 0.0d) {
             context.getSource().sendFeedback(prefix().append(Component.literal("Invalid price. Use number/k/m/b/t/q/qi.")
@@ -172,10 +181,13 @@ final class ShardCalculator {
         MutableComponent feedback = prefix().append(Component.literal("Gem price set to ")
                 .withStyle(ChatFormatting.GREEN))
                 .append(Component.literal(format(parsed)).withStyle(ChatFormatting.GOLD));
-        if (!state.gemPayoutEnabled) {
+        if (toggle == null && !state.gemPayoutEnabled) {
             feedback.append(Component.literal(" Gem auto pay is OFF, enable with /setgemprice on").withStyle(ChatFormatting.YELLOW));
         }
         context.getSource().sendFeedback(feedback);
+        if (toggle != null) {
+            return GemPayoutController.runToggle(context, toggle);
+        }
         return 1;
     }
 
