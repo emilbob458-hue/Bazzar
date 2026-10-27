@@ -69,6 +69,7 @@ final class ShadySummonerTimerHud {
     }
 
     static void render(GuiGraphics graphics, int screenWidth, int screenHeight, int mouseX, int mouseY) {
+        HudBoxes.hide("shady");
         if (!hasContent()) {
             return;
         }
@@ -81,7 +82,7 @@ final class ShadySummonerTimerHud {
 
         int height = currentHeight();
         int x = clamp(hudX, 2, Math.max(2, screenWidth - WIDTH - 2));
-        int y = clamp(hudY, 2, Math.max(2, screenHeight - height - 2));
+        int y = HudBoxes.place("shady", x, clamp(hudY, 2, Math.max(2, screenHeight - height - 2)), WIDTH, height, screenHeight);
         hudX = x;
         hudY = y;
 
@@ -138,8 +139,9 @@ final class ShadySummonerTimerHud {
         if (!dragging) {
             return;
         }
-        hudX = (int) (event.x() - dragOffsetX);
-        hudY = (int) (event.y() - dragOffsetY);
+        int[] pos = HudBoxes.drag("shady", hudX, hudY, (int) (event.x() - dragOffsetX), (int) (event.y() - dragOffsetY));
+        hudX = pos[0];
+        hudY = pos[1];
     }
 
     static void applyConfig(BazzarConfig.State state) {

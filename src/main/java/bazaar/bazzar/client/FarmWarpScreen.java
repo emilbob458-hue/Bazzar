@@ -35,6 +35,7 @@ final class FarmWarpScreen extends Screen {
     private static final int HINT_H = 14;
     private static final String WORLD_HINT = "Warp to world ▶";
     private static final String FAVORITE_HINT = "Right click a crop to favorite it";
+    private static final String DROP_HINT = "Drop to favorite";
     private static final String SCAN_LABEL = "Scan mobs";
     private static final String RESCAN_LABEL = "Rescan mobs";
     private static final String QUESTS_ON_LABEL = "Quests: On";
@@ -69,6 +70,11 @@ final class FarmWarpScreen extends Screen {
     private boolean draggingFav;
     private int dragOffX;
     private int dragOffY;
+    // A quest or pinned row pressed with left click: a click warps, a drag onto the favorites panel favorites it.
+    private FarmEntry pressedFarm;
+    private boolean draggingTarget;
+    private int pressX;
+    private int pressY;
     private int scroll;
     private Component[] worldLabels;
     private Component favoritesLabel;
@@ -301,11 +307,15 @@ final class FarmWarpScreen extends Screen {
     }
 
     // Favorites sit in their own panel to the left of the main one, as big rows like quests.
+    private boolean showFavPanel() {
+        return !favorites.isEmpty() || draggingTarget;
+    }
+
     private int favWidth() {
-        if (favorites.isEmpty()) {
+        if (!showFavPanel()) {
             return 0;
         }
-        int desired = font.width(favoritesLabel) + 24;
+        int desired = Math.max(font.width(favoritesLabel), font.width(DROP_HINT)) + 24;
         for (FavEntry fav : favorites) {
             desired = Math.max(desired, 28 + font.width(fav.farm().name()) + 8 + font.width(fav.world().displayName) + 10);
         }
@@ -314,7 +324,7 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int favPanelH() {
-        return favorites.isEmpty() ? 0 : TITLE_H + favorites.size() * FAV_ROW_H + BOTTOM_PAD;
+        return showFavPanel() ? TITLE_H + Math.max(1, favorites.size()) * FAV_ROW_H + BOTTOM_PAD : 0;
     }
 
     private int favRowY(int index) {
@@ -329,8 +339,13 @@ final class FarmWarpScreen extends Screen {
         return favW > 0 && !favDetached();
     }
 
+    // The empty drop panel shown while dragging hangs off the main panel instead of shifting it.
+    private boolean favInGroup() {
+        return favAttached() && !favorites.isEmpty();
+    }
+
     private int groupW() {
-        return panelW + (favAttached() ? favW + FAV_GAP : 0);
+        return panelW + (favInGroup() ? favW + FAV_GAP : 0);
     }
 
     private int groupH() {
@@ -348,7 +363,7 @@ final class FarmWarpScreen extends Screen {
         int panelH = groupH();
         favW = favWidth();
         int startX = Math.max(4, (width - groupW()) / 2);
-        left = startX + (favAttached() ? favW + FAV_GAP : 0);
+        left = startX + (favInGroup() ? favW + FAV_GAP : 0);
         if (panelH <= height - 8) {
             top = (height - panelH) / 2;
             scroll = 0;
@@ -360,6 +375,9 @@ final class FarmWarpScreen extends Screen {
         if (favDetached()) {
             favLeft = Math.max(0, Math.min(favX, width - favW));
             favTop = Math.max(0, Math.min(favY, height - favPanelH()));
+        } else if (favorites.isEmpty()) {
+            favLeft = Math.max(0, left - FAV_GAP - favW);
+            favTop = top;
         } else {
             favLeft = startX;
             favTop = top;
@@ -429,7 +447,7 @@ final class FarmWarpScreen extends Screen {
         graphics.fill(0, 0, width, height, (int) (0xAA * open) << 24);
         float openScale = 0.95f + 0.05f * open;
         graphics.pose().pushMatrix();
-        float centerX = (favAttached() ? favLeft : left) + groupW() / 2.0f;
+        float centerX = (favInGroup() ? favLeft : left) + groupW() / 2.0f;
         float centerY = top + groupH() / 2.0f;
         graphics.pose().translate(centerX, centerY);
         graphics.pose().scale(openScale, openScale);
@@ -453,7 +471,13 @@ final class FarmWarpScreen extends Screen {
                 graphics.drawCenteredString(font, "★", favLeft + favW / 2, favTop + 10, 0xFF000000 | FAVORITE_GOLD);
             }
             graphics.fill(favLeft + 8, favTop + TITLE_H - 3, favLeft + favW - 8, favTop + TITLE_H - 2, 0x88000000 | FAVORITE_GOLD);
-            if (!draggingFav && isInside(mouseX, mouseY, favLeft, favTop, favW, TITLE_H - 3)) {
+            if (draggingTarget && isInside(mouseX, mouseY, favLeft, favTop, favW, favPanelH())) {
+                BazzarUi.fillRoundedRect(graphics, favLeft + 4, favTop + TITLE_H, favW - 8, favPanelH() - TITLE_H - 4, 3, theme.soft(0x40));
+            }
+            if (favorites.isEmpty() && wide) {
+                graphics.drawCenteredString(font, DROP_HINT, favLeft + favW / 2, favTop + TITLE_H + 6, MUTED);
+            }
+            if (!draggingFav && !draggingTarget && isInside(mouseX, mouseY, favLeft, favTop, favW, TITLE_H - 3)) {
                 hoveredCropLabel = Component.literal(favDetached() ? "Drag to move, right click to snap back" : "Drag to move")
                         .withColor(0x8E97A6);
             }
@@ -559,7 +583,9 @@ final class FarmWarpScreen extends Screen {
                 : questsEnabled ? DONE_GREEN : MUTED;
         graphics.drawString(font, questsEnabled ? QUESTS_ON_LABEL : QUESTS_OFF_LABEL, quests.x(), hintY(), questsColor, false);
 
-        if (hoveredCropLabel != null) {
+        if (draggingTarget && pressedFarm != null) {
+            graphics.renderItem(pressedFarm.icon(), mouseX - 8, mouseY - 8);
+        } else if (hoveredCropLabel != null) {
             drawMiniTooltip(graphics, hoveredCropLabel, mobLines(hoveredFarm), mouseX, mouseY);
         }
         super.render(graphics, mouseX, mouseY, delta);
@@ -674,7 +700,9 @@ final class FarmWarpScreen extends Screen {
                 if (rightClick) {
                     toggleFavorite(targets.get(i).farm().command());
                 } else {
-                    warpAndClose(targets.get(i).farm().command());
+                    pressedFarm = targets.get(i).farm();
+                    pressX = mouseX;
+                    pressY = mouseY;
                 }
                 return true;
             }
@@ -708,6 +736,12 @@ final class FarmWarpScreen extends Screen {
             favY = Math.max(0, Math.min((int) event.y() - dragOffY, height - favPanelH()));
             return true;
         }
+        if (pressedFarm != null) {
+            if (!draggingTarget && Math.abs(event.x() - pressX) + Math.abs(event.y() - pressY) > 4) {
+                draggingTarget = true;
+            }
+            return true;
+        }
         return super.mouseDragged(event, deltaX, deltaY);
     }
 
@@ -717,6 +751,22 @@ final class FarmWarpScreen extends Screen {
             draggingFav = false;
             if (favDetached()) {
                 saveFavPosition();
+            }
+            return true;
+        }
+        if (pressedFarm != null) {
+            FarmEntry farm = pressedFarm;
+            boolean dragged = draggingTarget;
+            pressedFarm = null;
+            if (!dragged) {
+                warpAndClose(farm.command());
+                return true;
+            }
+            reposition();
+            boolean overFavorites = isInside((int) event.x(), (int) event.y(), favLeft, favTop, favW, favPanelH());
+            draggingTarget = false;
+            if (overFavorites && !favoriteCommands.contains(farm.command())) {
+                toggleFavorite(farm.command());
             }
             return true;
         }

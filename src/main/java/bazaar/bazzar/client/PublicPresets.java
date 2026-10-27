@@ -47,7 +47,7 @@ final class PublicPresets {
             "cobblePayEnabled", "gemPayEnabled",
             "cobblePayoutEnabled", "cobblePayoutPrice",
             "shardPayoutEnabled", "shardPayoutPrice", "gemPayoutEnabled",
-            "celestialBoosterReadyAt", "celestialRewardReadyAt",
+            "celestialBoosterReadyAt",
             "shardPrice", "gemPrice", "currentMulti",
             "autoDumpEnabled", "autoDumpPvPage", "defaultTriggerAdded",
             "hudX", "hudY", "shadyHudX", "shadyHudY", "questHudX", "questHudY", "farmFavX", "farmFavY",

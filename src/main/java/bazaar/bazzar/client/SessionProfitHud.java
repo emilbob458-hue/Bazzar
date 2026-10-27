@@ -185,6 +185,7 @@ final class SessionProfitHud {
     }
 
     static void render(GuiGraphics graphics, int mouseX, int mouseY) {
+        HudBoxes.hide("profit");
         Minecraft client = Minecraft.getInstance();
         if (!isEnabled() || client == null || client.player == null || client.level == null) {
             return;
@@ -212,7 +213,8 @@ final class SessionProfitHud {
         int scaledW = Math.round(barWidth * scale);
         int scaledH = Math.round(BAR_HEIGHT * scale);
         hudX = clamp(hudX, 2, Math.max(2, graphics.guiWidth() - scaledW - 2));
-        hudY = clamp(hudY, 2, Math.max(2, graphics.guiHeight() - scaledH - 2));
+        hudY = HudBoxes.place("profit", hudX, clamp(hudY, 2, Math.max(2, graphics.guiHeight() - scaledH - 2)),
+                scaledW, scaledH, graphics.guiHeight());
 
         BazzarTheme theme = BazzarTheme.current();
         graphics.pose().pushMatrix();
@@ -294,8 +296,9 @@ final class SessionProfitHud {
             return;
         }
         dragMoved = true;
-        hudX = (int) event.x() - dragOffsetX;
-        hudY = (int) event.y() - dragOffsetY;
+        int[] pos = HudBoxes.drag("profit", hudX, hudY, (int) event.x() - dragOffsetX, (int) event.y() - dragOffsetY);
+        hudX = pos[0];
+        hudY = pos[1];
     }
 
     private static boolean shouldHandleInput() {

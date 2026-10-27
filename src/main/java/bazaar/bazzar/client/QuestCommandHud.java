@@ -37,6 +37,7 @@ final class QuestCommandHud {
     }
 
     static void render(GuiGraphics graphics, int mouseX, int mouseY) {
+        HudBoxes.hide("quests");
         Minecraft client = Minecraft.getInstance();
         if (!visible || client == null || client.player == null || client.level == null) {
             return;
@@ -49,7 +50,8 @@ final class QuestCommandHud {
         int scaledHeight = Math.round(rawHeight * scale);
 
         hudX = clamp(hudX, 0, Math.max(0, graphics.guiWidth() - scaledWidth));
-        hudY = clamp(hudY, 0, Math.max(0, graphics.guiHeight() - scaledHeight));
+        hudY = HudBoxes.place("quests", hudX, clamp(hudY, 0, Math.max(0, graphics.guiHeight() - scaledHeight)),
+                scaledWidth, scaledHeight, graphics.guiHeight());
 
         graphics.pose().pushMatrix();
         graphics.pose().translate(hudX, hudY);
@@ -185,8 +187,9 @@ final class QuestCommandHud {
             return;
         }
         dragMoved = true;
-        hudX = (int) event.x() - dragOffsetX;
-        hudY = (int) event.y() - dragOffsetY;
+        int[] pos = HudBoxes.drag("quests", hudX, hudY, (int) event.x() - dragOffsetX, (int) event.y() - dragOffsetY);
+        hudX = pos[0];
+        hudY = pos[1];
     }
 
     static void onMouseScroll(double mouseX, double mouseY, double verticalAmount) {

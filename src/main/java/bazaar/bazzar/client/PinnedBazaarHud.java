@@ -56,18 +56,23 @@ final class PinnedBazaarHud {
     }
 
     static void render(GuiGraphics graphics, int screenWidth, int screenHeight, int mouseX, int mouseY) {
+        HudBoxes.hide("bazaar");
         Minecraft client = Minecraft.getInstance();
         if (!visible || client == null || client.player == null || client.level == null) {
             return;
         }
 
         List<Integer> visibleIndexes = getVisibleIndexes();
+        // In game with nothing pinned it's just an empty box, so only show it while a screen is open.
+        if (visibleIndexes.isEmpty() && mouseX < 0) {
+            return;
+        }
         int rawHeight = panelHeight(visibleIndexes.size());
         int width = Math.round(PANEL_W * scale);
         int height = Math.round(rawHeight * scale);
 
         int x = clamp(hudX, 2, Math.max(2, screenWidth - width - 2));
-        int y = clamp(hudY, 2, Math.max(2, screenHeight - height - 2));
+        int y = HudBoxes.place("bazaar", x, clamp(hudY, 2, Math.max(2, screenHeight - height - 2)), width, height, screenHeight);
         hudX = x;
         hudY = y;
 
@@ -216,8 +221,9 @@ final class PinnedBazaarHud {
             return;
         }
         dragMoved = true;
-        hudX = (int) (event.x() - dragOffsetX);
-        hudY = (int) (event.y() - dragOffsetY);
+        int[] pos = HudBoxes.drag("bazaar", hudX, hudY, (int) (event.x() - dragOffsetX), (int) (event.y() - dragOffsetY));
+        hudX = pos[0];
+        hudY = pos[1];
     }
 
     static void onMouseScroll(Screen screen, double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
