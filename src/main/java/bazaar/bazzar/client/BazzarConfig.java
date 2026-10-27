@@ -187,6 +187,12 @@ final class BazzarConfig {
         if (!root.has("questHudVisible")) {
             loaded.questHudVisible = defaults.questHudVisible;
         }
+        if (!root.has("farmFavX")) {
+            loaded.farmFavX = defaults.farmFavX;
+        }
+        if (!root.has("farmFavY")) {
+            loaded.farmFavY = defaults.farmFavY;
+        }
         if (!root.has("questHudX")) {
             loaded.questHudX = defaults.questHudX;
         }
@@ -311,6 +317,8 @@ final class BazzarConfig {
         double currentMulti = 1.0d;
         List<String> cropBlacklist = new ArrayList<>();
         List<String> farmFavorites = new ArrayList<>();
+        int farmFavX = -1;
+        int farmFavY = -1;
         boolean farmQuestsEnabled = true;
         boolean autoBazaarScanEnabled = false;
         int autoBazaarScanIntervalSeconds = 120;

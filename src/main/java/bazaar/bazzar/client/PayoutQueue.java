@@ -14,7 +14,7 @@ final class PayoutQueue {
     private static final long SEND_GAP_MS = 3_000L;
     private static final long REPLY_TIMEOUT_MS = 6_000L;
     private static final int MAX_SLOW_DOWN_RETRIES = 5;
-    private static final double MIN_RECEIVED = 5.0d;
+    static final double MIN_RECEIVED = 5.0d;
     private static final Pattern SENT_PATTERN =
             Pattern.compile("(?i)^\\s*you\\s+sent\\s+.*?tokens?\\s+to\\s+(\\w{1,16})");
 
@@ -23,6 +23,11 @@ final class PayoutQueue {
     private static long lastSendMs = 0L;
 
     private PayoutQueue() {
+    }
+
+    // Said when an auto pay is turned on, so small sends being skipped isn't a surprise.
+    static String minimumNote(String units) {
+        return " Only pays when more than " + SbText.formatCompact(MIN_RECEIVED) + " " + units + " arrive at once.";
     }
 
     static void enqueue(Minecraft client, String kind, String sender, double received, double total, String amountText) {

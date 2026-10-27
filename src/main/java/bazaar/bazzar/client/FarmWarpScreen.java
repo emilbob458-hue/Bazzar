@@ -61,7 +61,14 @@ final class FarmWarpScreen extends Screen {
     private int top;
     private int panelW;
     private int favLeft;
+    private int favTop;
     private int favW;
+    // Where the favorites panel was dragged to, -1 while it sits attached to the main panel.
+    private int favX = -1;
+    private int favY = -1;
+    private boolean draggingFav;
+    private int dragOffX;
+    private int dragOffY;
     private int scroll;
     private Component[] worldLabels;
     private Component favoritesLabel;
@@ -90,7 +97,10 @@ final class FarmWarpScreen extends Screen {
         favoritesLabel = BazzarUi.gradientText("★ Favorites", FAVORITE_GOLD, 0xE39B3A, true);
         targetsLabel = BazzarUi.gradientText("⚑ Quests & Pinned", 0x7DD3FC, 0xB28CFF, true);
         reloadFavorites();
-        questsEnabled = BazzarConfig.load().farmQuestsEnabled;
+        BazzarConfig.State config = BazzarConfig.load();
+        questsEnabled = config.farmQuestsEnabled;
+        favX = config.farmFavX;
+        favY = config.farmFavY;
         reloadTargets();
     }
 
@@ -171,33 +181,39 @@ final class FarmWarpScreen extends Screen {
         targets.add(new TargetEntry(match.label(), source, type, progress, required, match.farm(), match.world()));
     }
 
-    // Longest name wins, so "Ochre Froglight" beats "Froglight".
+    // Longest name wins, so "Ochre Froglight" beats "Froglight". On a tie a farm's own crop beats another
+    // farm's mob drop ("Red Mushroom" is the Red Mushroom farm, not the Pumpkin farm's Mooshroom drop),
+    // unless the quest is a kill quest.
     private FarmMatch matchFarm(String text) {
         String wanted = compact(text);
         if (wanted.isEmpty()) {
             return null;
         }
+        String lower = text.trim().toLowerCase(Locale.ROOT);
+        TargetType preferred = lower.startsWith("kill") || lower.startsWith("slay") ? TargetType.COMBAT : TargetType.FARMING;
         FarmMatch best = null;
         for (WorldTab world : WorldTab.values()) {
             for (FarmEntry farm : worldCrops.getOrDefault(world, List.of())) {
-                best = betterMatch(best, wanted, farm.name(), farm, world, TargetType.FARMING);
+                best = betterMatch(best, preferred, wanted, farm.name(), farm, world, TargetType.FARMING);
                 FarmMobScanner.MobInfo info = FarmMobScanner.get(farm.name());
                 if (info != null) {
-                    best = betterMatch(best, wanted, info.drop, farm, world, TargetType.COMBAT);
-                    best = betterMatch(best, wanted, info.bossDrop, farm, world, TargetType.COMBAT);
-                    best = betterMatch(best, wanted, info.mob, farm, world, TargetType.COMBAT);
+                    best = betterMatch(best, preferred, wanted, info.drop, farm, world, TargetType.COMBAT);
+                    best = betterMatch(best, preferred, wanted, info.bossDrop, farm, world, TargetType.COMBAT);
+                    best = betterMatch(best, preferred, wanted, info.mob, farm, world, TargetType.COMBAT);
                 }
             }
         }
         return best;
     }
 
-    private static FarmMatch betterMatch(FarmMatch best, String wanted, String label, FarmEntry farm, WorldTab world, TargetType type) {
+    private static FarmMatch betterMatch(FarmMatch best, TargetType preferred, String wanted, String label, FarmEntry farm,
+                                         WorldTab world, TargetType type) {
         String key = compact(label);
         if (key.length() < 3 || !wanted.contains(key)) {
             return best;
         }
-        if (best != null && best.key().length() >= key.length()) {
+        if (best != null && (best.key().length() > key.length()
+                || best.key().length() == key.length() && (best.type() == preferred || type != preferred))) {
             return best;
         }
         return new FarmMatch(farm, world, type, label, key);
@@ -293,7 +309,7 @@ final class FarmWarpScreen extends Screen {
         for (FavEntry fav : favorites) {
             desired = Math.max(desired, 28 + font.width(fav.farm().name()) + 8 + font.width(fav.world().displayName) + 10);
         }
-        int available = width - 8 - FAV_GAP - panelW;
+        int available = favDetached() ? width - 8 : width - 8 - FAV_GAP - panelW;
         return Math.max(28, Math.min(Math.min(desired, FAV_MAX_W), available));
     }
 
@@ -302,22 +318,37 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int favRowY(int index) {
-        return top + TITLE_H + index * FAV_ROW_H;
+        return favTop + TITLE_H + index * FAV_ROW_H;
+    }
+
+    private boolean favDetached() {
+        return favX >= 0 && favY >= 0;
+    }
+
+    private boolean favAttached() {
+        return favW > 0 && !favDetached();
     }
 
     private int groupW() {
-        return panelW + (favW > 0 ? favW + FAV_GAP : 0);
+        return panelW + (favAttached() ? favW + FAV_GAP : 0);
     }
 
     private int groupH() {
-        return Math.max(panelHeight(), favPanelH());
+        return favDetached() ? panelHeight() : Math.max(panelHeight(), favPanelH());
+    }
+
+    private void saveFavPosition() {
+        BazzarConfig.State state = BazzarConfig.load();
+        state.farmFavX = favX;
+        state.farmFavY = favY;
+        BazzarConfig.save(state);
     }
 
     private void reposition() {
         int panelH = groupH();
         favW = favWidth();
-        favLeft = Math.max(4, (width - groupW()) / 2);
-        left = favLeft + (favW > 0 ? favW + FAV_GAP : 0);
+        int startX = Math.max(4, (width - groupW()) / 2);
+        left = startX + (favAttached() ? favW + FAV_GAP : 0);
         if (panelH <= height - 8) {
             top = (height - panelH) / 2;
             scroll = 0;
@@ -325,6 +356,13 @@ final class FarmWarpScreen extends Screen {
             int maxScroll = panelH - (height - 8);
             scroll = Math.max(0, Math.min(scroll, maxScroll));
             top = 4 - scroll;
+        }
+        if (favDetached()) {
+            favLeft = Math.max(0, Math.min(favX, width - favW));
+            favTop = Math.max(0, Math.min(favY, height - favPanelH()));
+        } else {
+            favLeft = startX;
+            favTop = top;
         }
     }
 
@@ -391,7 +429,7 @@ final class FarmWarpScreen extends Screen {
         graphics.fill(0, 0, width, height, (int) (0xAA * open) << 24);
         float openScale = 0.95f + 0.05f * open;
         graphics.pose().pushMatrix();
-        float centerX = favLeft + groupW() / 2.0f;
+        float centerX = (favAttached() ? favLeft : left) + groupW() / 2.0f;
         float centerY = top + groupH() / 2.0f;
         graphics.pose().translate(centerX, centerY);
         graphics.pose().scale(openScale, openScale);
@@ -407,19 +445,23 @@ final class FarmWarpScreen extends Screen {
         FarmEntry hoveredFarm = null;
 
         if (favW > 0) {
-            BazzarUi.drawRoundedGlowBorder(graphics, favLeft, top, favW, favPanelH(), 8);
+            BazzarUi.drawRoundedGlowBorder(graphics, favLeft, favTop, favW, favPanelH(), 8);
             boolean wide = favW >= FAV_TEXT_MIN_W;
             if (wide) {
-                graphics.drawCenteredString(font, favoritesLabel, favLeft + favW / 2, top + 10, 0xFFFFFFFF);
+                graphics.drawCenteredString(font, favoritesLabel, favLeft + favW / 2, favTop + 10, 0xFFFFFFFF);
             } else {
-                graphics.drawCenteredString(font, "★", favLeft + favW / 2, top + 10, 0xFF000000 | FAVORITE_GOLD);
+                graphics.drawCenteredString(font, "★", favLeft + favW / 2, favTop + 10, 0xFF000000 | FAVORITE_GOLD);
             }
-            graphics.fill(favLeft + 8, top + TITLE_H - 3, favLeft + favW - 8, top + TITLE_H - 2, 0x88000000 | FAVORITE_GOLD);
+            graphics.fill(favLeft + 8, favTop + TITLE_H - 3, favLeft + favW - 8, favTop + TITLE_H - 2, 0x88000000 | FAVORITE_GOLD);
+            if (!draggingFav && isInside(mouseX, mouseY, favLeft, favTop, favW, TITLE_H - 3)) {
+                hoveredCropLabel = Component.literal(favDetached() ? "Drag to move, right click to snap back" : "Drag to move")
+                        .withColor(0x8E97A6);
+            }
             for (int i = 0; i < favorites.size(); i++) {
                 FavEntry fav = favorites.get(i);
                 WorldTab world = fav.world();
                 int ry = favRowY(i);
-                if (isInside(mouseX, mouseY, favLeft + 4, ry, favW - 8, FAV_ROW_H)) {
+                if (!draggingFav && isInside(mouseX, mouseY, favLeft + 4, ry, favW - 8, FAV_ROW_H)) {
                     BazzarUi.fillRoundedRect(graphics, favLeft + 4, ry, favW - 8, FAV_ROW_H, 3, theme.soft(0x40));
                     hoveredCropLabel = BazzarUi.gradientText(fav.farm().name(), world.gradFrom, world.gradTo, false);
                     hoveredFarm = fav.farm();
@@ -603,6 +645,19 @@ final class FarmWarpScreen extends Screen {
             return true;
         }
 
+        if (favW > 0 && isInside(mouseX, mouseY, favLeft, favTop, favW, TITLE_H - 3)) {
+            if (rightClick) {
+                favX = -1;
+                favY = -1;
+                saveFavPosition();
+            } else {
+                draggingFav = true;
+                dragOffX = mouseX - favLeft;
+                dragOffY = mouseY - favTop;
+            }
+            return true;
+        }
+
         for (int i = 0; i < favorites.size(); i++) {
             if (isInside(mouseX, mouseY, favLeft + 4, favRowY(i), favW - 8, FAV_ROW_H)) {
                 if (rightClick) {
@@ -644,6 +699,28 @@ final class FarmWarpScreen extends Screen {
             }
         }
         return super.mouseClicked(event, bl);
+    }
+
+    @Override
+    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
+        if (draggingFav) {
+            favX = Math.max(0, Math.min((int) event.x() - dragOffX, width - favW));
+            favY = Math.max(0, Math.min((int) event.y() - dragOffY, height - favPanelH()));
+            return true;
+        }
+        return super.mouseDragged(event, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        if (draggingFav) {
+            draggingFav = false;
+            if (favDetached()) {
+                saveFavPosition();
+            }
+            return true;
+        }
+        return super.mouseReleased(event);
     }
 
     @Override

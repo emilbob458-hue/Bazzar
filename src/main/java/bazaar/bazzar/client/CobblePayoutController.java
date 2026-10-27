@@ -64,7 +64,7 @@ final class CobblePayoutController {
         BazzarConfig.save(state);
         context.getSource().sendFeedback(prefix()
                 .append(Component.literal(enable
-                        ? "Cobble auto pay ON, paying " + SbText.formatCompact(state.cobblePayoutPrice) + " per cobble received."
+                        ? "Cobble auto pay ON, paying " + SbText.formatCompact(state.cobblePayoutPrice) + " per cobble received." + PayoutQueue.minimumNote("cobble")
                         : "Cobble auto pay OFF.")
                         .withStyle(enable ? ChatFormatting.GREEN : ChatFormatting.YELLOW)));
         return 1;

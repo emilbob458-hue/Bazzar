@@ -47,7 +47,7 @@ final class GemPayoutController {
         BazzarConfig.save(state);
         context.getSource().sendFeedback(prefix()
                 .append(Component.literal(enable
-                        ? "Gem auto pay ON, paying " + SbText.formatCompact(state.gemPrice) + " per gem received."
+                        ? "Gem auto pay ON, paying " + SbText.formatCompact(state.gemPrice) + " per gem received." + PayoutQueue.minimumNote("gems")
                         : "Gem auto pay OFF.")
                         .withStyle(enable ? ChatFormatting.GREEN : ChatFormatting.YELLOW)));
         return 1;

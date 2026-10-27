@@ -50,7 +50,7 @@ final class PublicPresets {
             "celestialBoosterReadyAt", "celestialRewardReadyAt",
             "shardPrice", "gemPrice", "currentMulti",
             "autoDumpEnabled", "autoDumpPvPage", "defaultTriggerAdded",
-            "hudX", "hudY", "shadyHudX", "shadyHudY", "questHudX", "questHudY",
+            "hudX", "hudY", "shadyHudX", "shadyHudY", "questHudX", "questHudY", "farmFavX", "farmFavY",
             "profitHudX", "profitHudY", "altHudX", "altHudY",
             "scoreboardGlowOffsetX", "scoreboardGlowOffsetY");
     private static final Set<String> SHARED_KEYS = sharedKeys();
