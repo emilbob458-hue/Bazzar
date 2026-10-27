@@ -1,11 +1,15 @@
 package bazaar.bazzar.client;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -34,6 +38,12 @@ final class FarmWarpScreen extends Screen {
     private static final String SCAN_LABEL = "Scan mobs";
     private static final String RESCAN_LABEL = "Rescan mobs";
     private static final int FAVORITE_GOLD = 0xFFD75A;
+    private static final int TARGET_ROW_H = 18;
+    private static final int MAX_TARGETS = 8;
+    private static final int TARGET_REFRESH_TICKS = 20;
+    private static final int MUTED = 0xFF8E97A6;
+    private static final int DONE_GREEN = 0xFF86EFAC;
+    private static final Pattern PROGRESS_PATTERN = Pattern.compile("([\\d.,]+\\s*[kmbt]?)\\s*/\\s*([\\d.,]+\\s*[kmbt]?)");
 
     private static final int HEADER_TEXT = 0xFFFFFFFF;
 
@@ -45,9 +55,12 @@ final class FarmWarpScreen extends Screen {
     private int scroll;
     private Component[] worldLabels;
     private Component favoritesLabel;
+    private Component targetsLabel;
+    private int refreshTicks;
     private final Map<WorldTab, List<FarmEntry>> worldCrops = new EnumMap<>(WorldTab.class);
     private final List<FavEntry> favorites = new ArrayList<>();
     private final Set<String> favoriteCommands = new HashSet<>();
+    private final List<TargetEntry> targets = new ArrayList<>();
 
     FarmWarpScreen() {
         super(Component.literal("Farm Warps"));
@@ -64,8 +77,110 @@ final class FarmWarpScreen extends Screen {
             worldLabels[i] = BazzarUi.gradientText(worlds[i].displayName, worlds[i].gradFrom, worlds[i].gradTo, true);
         }
         favoritesLabel = BazzarUi.gradientText("★ Favorites", FAVORITE_GOLD, 0xE39B3A, true);
+        targetsLabel = BazzarUi.gradientText("⚑ Quests & Pinned", 0x7DD3FC, 0xB28CFF, true);
         reloadFavorites();
-        panelW = Math.min(Math.min(contentWidth(), MAX_PANEL_WIDTH), Math.max(240, width - 8));
+        reloadTargets();
+    }
+
+    private void updatePanelWidth() {
+        int needed = targets.isEmpty() ? contentWidth() : Math.max(contentWidth(), 260);
+        panelW = Math.min(Math.min(needed, MAX_PANEL_WIDTH), Math.max(240, width - 8));
+    }
+
+    private void reloadTargets() {
+        targets.clear();
+        Set<String> seen = new HashSet<>();
+        for (GuildQuestScanner.QuestEntry quest : GuildQuestScanner.getLastEntries()) {
+            String text = SbText.normalizeText(quest.name());
+            double progress = amount(quest.leftValue());
+            double required = amount(quest.rightValue());
+            if (required < 0d) {
+                required = SbText.firstAmount(text);
+                progress = -1d;
+            }
+            addTarget(text, "GQ", progress, required, seen);
+        }
+
+        List<ScoreboardReader.Line> lines = new ArrayList<>(ScoreboardReader.readSidebar(Minecraft.getInstance()));
+        lines.sort(Comparator.comparingInt(ScoreboardReader.Line::score).reversed());
+        boolean inPinned = false;
+        for (ScoreboardReader.Line line : lines) {
+            String text = line.normalizedText().trim();
+            int idx = text.indexOf("pinned");
+            if (idx >= 0) {
+                inPinned = true;
+                text = text.substring(idx + "pinned".length());
+            } else if (!inPinned) {
+                continue;
+            } else if (compact(text).isEmpty()) {
+                break;
+            }
+            Matcher matcher = PROGRESS_PATTERN.matcher(text);
+            if (matcher.find()) {
+                addTarget(text, "Pin", SbText.firstAmount(matcher.group(1)), SbText.firstAmount(matcher.group(2)), seen);
+            } else {
+                addTarget(text, "Pin", -1d, SbText.firstAmount(text), seen);
+            }
+        }
+        updatePanelWidth();
+    }
+
+    private void addTarget(String text, String source, double progress, double required, Set<String> seen) {
+        if (targets.size() >= MAX_TARGETS) {
+            return;
+        }
+        FarmMatch match = matchFarm(text);
+        if (match == null || !seen.add(source + "|" + match.farm().command() + "|" + match.key())) {
+            return;
+        }
+        TargetType type = match.type();
+        String lower = text.trim().toLowerCase(Locale.ROOT);
+        if (lower.startsWith("kill") || lower.startsWith("slay")) {
+            type = TargetType.COMBAT;
+        } else if (lower.startsWith("mine")) {
+            type = TargetType.MINING;
+        }
+        targets.add(new TargetEntry(match.label(), source, type, progress, required, match.farm(), match.world()));
+    }
+
+    // Longest name wins, so "Ochre Froglight" beats "Froglight".
+    private FarmMatch matchFarm(String text) {
+        String wanted = compact(text);
+        if (wanted.isEmpty()) {
+            return null;
+        }
+        FarmMatch best = null;
+        for (WorldTab world : WorldTab.values()) {
+            for (FarmEntry farm : worldCrops.getOrDefault(world, List.of())) {
+                best = betterMatch(best, wanted, farm.name(), farm, world, TargetType.FARMING);
+                FarmMobScanner.MobInfo info = FarmMobScanner.get(farm.name());
+                if (info != null) {
+                    best = betterMatch(best, wanted, info.drop, farm, world, TargetType.COMBAT);
+                    best = betterMatch(best, wanted, info.bossDrop, farm, world, TargetType.COMBAT);
+                    best = betterMatch(best, wanted, info.mob, farm, world, TargetType.COMBAT);
+                }
+            }
+        }
+        return best;
+    }
+
+    private static FarmMatch betterMatch(FarmMatch best, String wanted, String label, FarmEntry farm, WorldTab world, TargetType type) {
+        String key = compact(label);
+        if (key.length() < 3 || !wanted.contains(key)) {
+            return best;
+        }
+        if (best != null && best.key().length() >= key.length()) {
+            return best;
+        }
+        return new FarmMatch(farm, world, type, label, key);
+    }
+
+    private static String compact(String text) {
+        return text == null ? "" : text.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+    }
+
+    private static double amount(String value) {
+        return value == null || "N/A".equals(value) ? -1d : SbText.firstAmount(value.toLowerCase(Locale.ROOT));
     }
 
     private void reloadFavorites() {
@@ -121,7 +236,23 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int panelHeight() {
-        return TITLE_H + favSectionH() + WorldTab.values().length * SECTION_H + HINT_H + BOTTOM_PAD;
+        return TITLE_H + topSectionsH() + WorldTab.values().length * SECTION_H + HINT_H + BOTTOM_PAD;
+    }
+
+    private int topSectionsH() {
+        return favSectionH() + targetSectionH();
+    }
+
+    private int targetSectionH() {
+        return targets.isEmpty() ? 0 : SECTION_HEADER_H + targets.size() * TARGET_ROW_H + SECTION_PAD;
+    }
+
+    private int targetSectionY() {
+        return top + TITLE_H + favSectionH() + 4;
+    }
+
+    private int targetRowY(int index) {
+        return targetSectionY() + SECTION_HEADER_H + index * TARGET_ROW_H;
     }
 
     private int favPerRow() {
@@ -255,6 +386,39 @@ final class FarmWarpScreen extends Screen {
             graphics.fill(left + 8, fy + favSectionH() - 4, left + panelW - 8, fy + favSectionH() - 3, theme.soft(0x44));
         }
 
+        if (!targets.isEmpty()) {
+            int ty = targetSectionY();
+            graphics.fill(left + 8, ty, left + 10, ty + targetSectionH() - SECTION_PAD - 2, 0xCC7DD3FC);
+            graphics.drawString(font, targetsLabel, left + 16, ty, 0xFFFFFFFF, false);
+            int right = left + panelW - 10;
+            for (int i = 0; i < targets.size(); i++) {
+                TargetEntry target = targets.get(i);
+                int ry = targetRowY(i);
+                if (isInside(mouseX, mouseY, left + 12, ry, panelW - 20, TARGET_ROW_H)) {
+                    BazzarUi.fillRoundedRect(graphics, left + 12, ry, panelW - 20, TARGET_ROW_H, 3, theme.soft(0x40));
+                    hoveredCropLabel = BazzarUi.gradientText(target.farm().name() + " farm", target.world().gradFrom, target.world().gradTo, false);
+                    hoveredFarm = target.farm();
+                }
+                graphics.renderItem(target.farm().icon(), left + 16, ry + 1);
+
+                int textY = ry + 5;
+                String amount = target.amountText();
+                boolean done = target.progress() >= 0d && target.required() > 0d && target.progress() >= target.required();
+                int amountX = right - font.width(amount);
+                graphics.drawString(font, amount, amountX, textY, done ? DONE_GREEN : 0xFFFFFFFF, false);
+                String type = target.type().label;
+                int typeX = amountX - 8 - font.width(type);
+                graphics.drawString(font, type, typeX, textY, 0xFF000000 | target.type().color, false);
+                int sourceX = typeX - 6 - font.width(target.source());
+                graphics.drawString(font, target.source(), sourceX, textY, MUTED, false);
+                int nameX = left + 38;
+                String name = font.plainSubstrByWidth(target.label(), Math.max(0, sourceX - nameX - 6));
+                graphics.drawString(font, name, nameX, textY, 0xFFFFFFFF, false);
+            }
+            int dy = ty + targetSectionH() - 4;
+            graphics.fill(left + 8, dy, left + panelW - 8, dy + 1, theme.soft(0x44));
+        }
+
         for (int i = 0; i < worlds.length; i++) {
             WorldTab world = worlds[i];
             int sy = sectionY(i);
@@ -352,6 +516,11 @@ final class FarmWarpScreen extends Screen {
         }
         if (closingSinceMs >= 0L && System.currentTimeMillis() - closingSinceMs >= 130L) {
             McCompat.setScreen(Minecraft.getInstance(), null);
+            return;
+        }
+        if (++refreshTicks >= TARGET_REFRESH_TICKS) {
+            refreshTicks = 0;
+            reloadTargets();
         }
     }
 
@@ -376,6 +545,17 @@ final class FarmWarpScreen extends Screen {
                     toggleFavorite(favorites.get(i).farm().command());
                 } else {
                     warpAndClose(favorites.get(i).farm().command());
+                }
+                return true;
+            }
+        }
+
+        for (int i = 0; i < targets.size(); i++) {
+            if (isInside(mouseX, mouseY, left + 12, targetRowY(i), panelW - 20, TARGET_ROW_H)) {
+                if (rightClick) {
+                    toggleFavorite(targets.get(i).farm().command());
+                } else {
+                    warpAndClose(targets.get(i).farm().command());
                 }
                 return true;
             }
@@ -419,7 +599,7 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int hintY() {
-        return top + TITLE_H + favSectionH() + WorldTab.values().length * SECTION_H + 2;
+        return top + TITLE_H + topSectionsH() + WorldTab.values().length * SECTION_H + 2;
     }
 
     private ButtonBounds scanBounds() {
@@ -428,7 +608,7 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int sectionY(int index) {
-        return top + TITLE_H + favSectionH() + index * SECTION_H + 4;
+        return top + TITLE_H + topSectionsH() + index * SECTION_H + 4;
     }
 
     private int iconX(int cropIndex) {
@@ -470,6 +650,34 @@ final class FarmWarpScreen extends Screen {
     private record ButtonBounds(int x, int y, int w, int h) {}
     private record FarmEntry(String name, String command, ItemStack icon) {}
     private record FavEntry(FarmEntry farm, WorldTab world) {}
+    private record FarmMatch(FarmEntry farm, WorldTab world, TargetType type, String label, String key) {}
+
+    private record TargetEntry(String label, String source, TargetType type, double progress, double required,
+                               FarmEntry farm, WorldTab world) {
+        String amountText() {
+            if (required <= 0d) {
+                return "?";
+            }
+            if (progress < 0d) {
+                return SbText.formatCompact(required);
+            }
+            return SbText.formatCompact(progress) + " / " + SbText.formatCompact(required);
+        }
+    }
+
+    private enum TargetType {
+        FARMING("Farming", 0x86EFAC),
+        MINING("Mining", 0x7DD3FC),
+        COMBAT("Combat", 0xFF6B6B);
+
+        final String label;
+        final int color;
+
+        TargetType(String label, int color) {
+            this.label = label;
+            this.color = color;
+        }
+    }
 
     private enum WorldTab {
 
