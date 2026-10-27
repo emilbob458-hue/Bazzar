@@ -51,7 +51,7 @@ final class ConfigPresets {
                                 .executes(ctx -> reply(ctx, load(StringArgumentType.getString(ctx, "name"))))))
                         .then(literal("delete").then(argument("name", StringArgumentType.word())
                                 .suggests(presetNames)
-                                .executes(ctx -> reply(ctx, delete(StringArgumentType.getString(ctx, "name"))))))
+                                .executes(ConfigPresets::runDelete)))
                         .then(PublicPresets.command())));
     }
 
@@ -153,6 +153,21 @@ final class ConfigPresets {
                 .append(Component.literal(String.join(", ", names)).withStyle(ChatFormatting.WHITE))
                 .append(Component.literal("  (/config set|save|delete <name>, /config public)").withStyle(ChatFormatting.DARK_GRAY)));
         return 1;
+    }
+
+    private static int runDelete(CommandContext<FabricClientCommandSource> context) {
+        String name = StringArgumentType.getString(context, "name");
+        Result result = delete(name);
+        if (result.ok()) {
+            PublicPresets.unshare(name, removed -> {
+                if (removed > 0) {
+                    context.getSource().sendFeedback(prefix().append(Component.literal("Also removed it from public presets.")
+                            .withStyle(ChatFormatting.GREEN)));
+                }
+            }, error -> context.getSource().sendFeedback(prefix().append(Component.literal(
+                    "Could not remove it from public presets: " + error + ".").withStyle(ChatFormatting.RED))));
+        }
+        return reply(context, result);
     }
 
     private static int reply(CommandContext<FabricClientCommandSource> context, Result result) {

@@ -53,7 +53,6 @@ final class PublicPresets {
             "hudX", "hudY", "shadyHudX", "shadyHudY", "questHudX", "questHudY",
             "profitHudX", "profitHudY", "altHudX", "altHudY",
             "scoreboardGlowOffsetX", "scoreboardGlowOffsetY");
-    static final String BACKUP_NAME = "before_public";
     private static final Set<String> SHARED_KEYS = sharedKeys();
     private static final Gson GSON = new Gson();
     private static final HttpClient HTTP = HttpClient.newBuilder()
@@ -161,7 +160,40 @@ final class PublicPresets {
         }, done, failed);
     }
 
-    // Client thread. Saves your current settings as the before_public preset first.
+    // Removes your public copies of a local preset, matched by name and your username. Gives how many were removed.
+    static void unshare(String localName, Consumer<Integer> done, Consumer<String> failed) {
+        String key = nameKey(localName);
+        String author = Minecraft.getInstance().getUser().getName();
+        async(() -> {
+            JsonObject list = request("GET", "/presets?sort=new", null);
+            JsonArray array = list.has("presets") && list.get("presets").isJsonArray() ? list.getAsJsonArray("presets") : new JsonArray();
+            int removed = 0;
+            for (JsonElement element : array) {
+                if (!element.isJsonObject()) {
+                    continue;
+                }
+                JsonObject item = element.getAsJsonObject();
+                if (!key.equals(nameKey(text(item, "name"))) || !author.equalsIgnoreCase(text(item, "author"))) {
+                    continue;
+                }
+                JsonObject body = new JsonObject();
+                body.addProperty("id", UsageStats.installId());
+                try {
+                    request("POST", "/presets/" + cleanCode(text(item, "code")) + "/delete", body.toString());
+                    removed++;
+                } catch (IOException ignored) {
+                    // Same name and author, but uploaded from another install.
+                }
+            }
+            return removed;
+        }, done, failed);
+    }
+
+    private static String nameKey(String name) {
+        return Objects.requireNonNullElse(name, "").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", "");
+    }
+
+    // Client thread.
     static ConfigPresets.Result apply(Preset preset) {
         BazzarConfig.State current = BazzarConfig.load();
         JsonObject merged = GSON.toJsonTree(current).getAsJsonObject();
@@ -177,18 +209,13 @@ final class PublicPresets {
         if (next == null) {
             return new ConfigPresets.Result(false, "Preset " + preset.name() + " is empty.");
         }
-        ConfigPresets.Result backup = ConfigPresets.save(BACKUP_NAME);
-        if (!backup.ok()) {
-            return new ConfigPresets.Result(false, "Could not back up your settings, nothing changed.");
-        }
         BazzarConfig.save(next);
         BazzarConfig.reload();
         BazzarClient.applyConfig(BazzarConfig.load());
         async(() -> request("GET", "/presets/" + cleanCode(preset.code()) + "?apply=1", null), ignored -> {
         }, ignored -> {
         });
-        return new ConfigPresets.Result(true, "Applied " + preset.name() + " by " + preset.author()
-                + ". Undo with /config set " + BACKUP_NAME + ".");
+        return new ConfigPresets.Result(true, "Applied " + preset.name() + " by " + preset.author() + ".");
     }
 
     // Chat triggers and macros the preset would add or change, shown before applying.

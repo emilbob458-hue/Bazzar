@@ -1529,8 +1529,16 @@ final class BazaarTrackerScreen extends Screen {
                 return true;
             }
             if (isInside(mouseX, mouseY, presetDeleteButton(i))) {
-                statusText = ConfigPresets.delete(name).message();
+                ConfigPresets.Result result = ConfigPresets.delete(name);
+                statusText = result.message();
                 presetNames = ConfigPresets.names();
+                if (result.ok()) {
+                    PublicPresets.unshare(name, removed -> {
+                        if (removed > 0) {
+                            statusText = "Deleted preset " + name + " and removed it from public presets.";
+                        }
+                    }, error -> statusText = "Deleted " + name + ", but could not remove it from public presets: " + error + ".");
+                }
                 return true;
             }
         }
