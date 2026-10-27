@@ -41,6 +41,10 @@ final class FarmWarpScreen extends Screen {
     private static final String QUESTS_OFF_LABEL = "Quests: Off";
     private static final int FAVORITE_GOLD = 0xFFD75A;
     private static final int TARGET_ROW_H = 18;
+    private static final int FAV_GAP = 6;
+    private static final int FAV_ROW_H = 20;
+    private static final int FAV_MAX_W = 190;
+    private static final int FAV_TEXT_MIN_W = 70;
     private static final int MAX_TARGETS = 8;
     private static final int TARGET_REFRESH_TICKS = 20;
     private static final int MUTED = 0xFF8E97A6;
@@ -56,6 +60,8 @@ final class FarmWarpScreen extends Screen {
     private int left;
     private int top;
     private int panelW;
+    private int favLeft;
+    private int favW;
     private int scroll;
     private Component[] worldLabels;
     private Component favoritesLabel;
@@ -263,7 +269,7 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int topSectionsH() {
-        return favSectionH() + targetSectionH();
+        return targetSectionH();
     }
 
     private int targetSectionH() {
@@ -271,40 +277,47 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int targetSectionY() {
-        return top + TITLE_H + favSectionH() + 4;
+        return top + TITLE_H + 4;
     }
 
     private int targetRowY(int index) {
         return targetSectionY() + SECTION_HEADER_H + index * TARGET_ROW_H;
     }
 
-    private int favPerRow() {
-        return Math.max(1, (panelW - 16 - 10) / ICON_STEP);
+    // Favorites sit in their own panel to the left of the main one, as big rows like quests.
+    private int favWidth() {
+        if (favorites.isEmpty()) {
+            return 0;
+        }
+        int desired = font.width(favoritesLabel) + 24;
+        for (FavEntry fav : favorites) {
+            desired = Math.max(desired, 28 + font.width(fav.farm().name()) + 8 + font.width(fav.world().displayName) + 10);
+        }
+        int available = width - 8 - FAV_GAP - panelW;
+        return Math.max(28, Math.min(Math.min(desired, FAV_MAX_W), available));
     }
 
-    private int favRows() {
-        return favorites.isEmpty() ? 0 : (favorites.size() + favPerRow() - 1) / favPerRow();
+    private int favPanelH() {
+        return favorites.isEmpty() ? 0 : TITLE_H + favorites.size() * FAV_ROW_H + BOTTOM_PAD;
     }
 
-    private int favSectionH() {
-        return favorites.isEmpty() ? 0 : SECTION_HEADER_H + favRows() * ICON_ROW_H + SECTION_PAD;
+    private int favRowY(int index) {
+        return top + TITLE_H + index * FAV_ROW_H;
     }
 
-    private int favSectionY() {
-        return top + TITLE_H + 4;
+    private int groupW() {
+        return panelW + (favW > 0 ? favW + FAV_GAP : 0);
     }
 
-    private int favIconX(int index) {
-        return left + 16 + (index % favPerRow()) * ICON_STEP;
-    }
-
-    private int favIconY(int index) {
-        return favSectionY() + SECTION_HEADER_H + 2 + (index / favPerRow()) * ICON_ROW_H;
+    private int groupH() {
+        return Math.max(panelHeight(), favPanelH());
     }
 
     private void reposition() {
-        int panelH = panelHeight();
-        left = Math.max(4, (width - panelW) / 2);
+        int panelH = groupH();
+        favW = favWidth();
+        favLeft = Math.max(4, (width - groupW()) / 2);
+        left = favLeft + (favW > 0 ? favW + FAV_GAP : 0);
         if (panelH <= height - 8) {
             top = (height - panelH) / 2;
             scroll = 0;
@@ -378,9 +391,11 @@ final class FarmWarpScreen extends Screen {
         graphics.fill(0, 0, width, height, (int) (0xAA * open) << 24);
         float openScale = 0.95f + 0.05f * open;
         graphics.pose().pushMatrix();
-        graphics.pose().translate(left + panelW / 2.0f, top + panelH / 2.0f);
+        float centerX = favLeft + groupW() / 2.0f;
+        float centerY = top + groupH() / 2.0f;
+        graphics.pose().translate(centerX, centerY);
         graphics.pose().scale(openScale, openScale);
-        graphics.pose().translate(-(left + panelW / 2.0f), -(top + panelH / 2.0f));
+        graphics.pose().translate(-centerX, -centerY);
         BazzarUi.drawRoundedGlowBorder(graphics, left, top, panelW, panelH, 8);
 
         Component title = BazzarUi.gradientText("Farm Warps", theme.light() & 0xFFFFFF, theme.rgb, true);
@@ -391,22 +406,40 @@ final class FarmWarpScreen extends Screen {
         Component hoveredCropLabel = null;
         FarmEntry hoveredFarm = null;
 
-        if (!favorites.isEmpty()) {
-            int fy = favSectionY();
-            graphics.fill(left + 8, fy, left + 10, fy + favSectionH() - SECTION_PAD - 2, 0xCC000000 | FAVORITE_GOLD);
-            graphics.drawString(font, favoritesLabel, left + 16, fy, 0xFFFFFFFF, false);
+        if (favW > 0) {
+            BazzarUi.drawRoundedGlowBorder(graphics, favLeft, top, favW, favPanelH(), 8);
+            boolean wide = favW >= FAV_TEXT_MIN_W;
+            if (wide) {
+                graphics.drawCenteredString(font, favoritesLabel, favLeft + favW / 2, top + 10, 0xFFFFFFFF);
+            } else {
+                graphics.drawCenteredString(font, "★", favLeft + favW / 2, top + 10, 0xFF000000 | FAVORITE_GOLD);
+            }
+            graphics.fill(favLeft + 8, top + TITLE_H - 3, favLeft + favW - 8, top + TITLE_H - 2, 0x88000000 | FAVORITE_GOLD);
             for (int i = 0; i < favorites.size(); i++) {
                 FavEntry fav = favorites.get(i);
-                int ix = favIconX(i);
-                int iy = favIconY(i);
-                if (isInside(mouseX, mouseY, ix - 2, iy - 2, 20, 20)) {
-                    BazzarUi.fillRoundedRect(graphics, ix - 2, iy - 2, 20, 20, 3, theme.soft(0x40));
-                    hoveredCropLabel = BazzarUi.gradientText(fav.farm().name(), fav.world().gradFrom, fav.world().gradTo, false);
+                WorldTab world = fav.world();
+                int ry = favRowY(i);
+                if (isInside(mouseX, mouseY, favLeft + 4, ry, favW - 8, FAV_ROW_H)) {
+                    BazzarUi.fillRoundedRect(graphics, favLeft + 4, ry, favW - 8, FAV_ROW_H, 3, theme.soft(0x40));
+                    hoveredCropLabel = BazzarUi.gradientText(fav.farm().name(), world.gradFrom, world.gradTo, false);
                     hoveredFarm = fav.farm();
                 }
-                graphics.renderItem(fav.farm().icon(), ix, iy);
+                if (!wide) {
+                    graphics.renderItem(fav.farm().icon(), favLeft + (favW - 16) / 2, ry + 2);
+                    continue;
+                }
+                graphics.renderItem(fav.farm().icon(), favLeft + 8, ry + 2);
+                int textY = ry + 6;
+                int nameX = favLeft + 28;
+                int right = favLeft + favW - 8;
+                int worldX = right - font.width(world.displayName);
+                boolean showWorld = worldX - 6 - nameX >= 40;
+                String name = font.plainSubstrByWidth(fav.farm().name(), (showWorld ? worldX - 6 : right) - nameX);
+                graphics.drawString(font, BazzarUi.gradientText(name, world.gradFrom, world.gradTo, false), nameX, textY, 0xFFFFFFFF, false);
+                if (showWorld) {
+                    graphics.drawString(font, world.displayName, worldX, textY, MUTED, false);
+                }
             }
-            graphics.fill(left + 8, fy + favSectionH() - 4, left + panelW - 8, fy + favSectionH() - 3, theme.soft(0x44));
         }
 
         if (!targets.isEmpty()) {
@@ -571,7 +604,7 @@ final class FarmWarpScreen extends Screen {
         }
 
         for (int i = 0; i < favorites.size(); i++) {
-            if (isInside(mouseX, mouseY, favIconX(i) - 2, favIconY(i) - 2, 20, 20)) {
+            if (isInside(mouseX, mouseY, favLeft + 4, favRowY(i), favW - 8, FAV_ROW_H)) {
                 if (rightClick) {
                     toggleFavorite(favorites.get(i).farm().command());
                 } else {
@@ -615,7 +648,7 @@ final class FarmWarpScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        int maxScroll = Math.max(0, panelHeight() - (height - 8));
+        int maxScroll = Math.max(0, groupH() - (height - 8));
         if (maxScroll > 0) {
             scroll = Math.max(0, Math.min((int) (scroll - scrollY * 20.0d), maxScroll));
             return true;
