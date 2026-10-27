@@ -55,9 +55,12 @@ final class FarmMobScanner {
         String drop;
         String mobJson;
         String dropJson;
+        String bossDrop;
+        String bossDropJson;
         List<String> tooltip;
         transient Component mobLine;
         transient Component dropLine;
+        transient Component bossDropLine;
         transient boolean decoded;
 
         Component mobText() {
@@ -68,6 +71,11 @@ final class FarmMobScanner {
         Component dropText() {
             decode();
             return dropLine;
+        }
+
+        Component bossDropText() {
+            decode();
+            return bossDropLine;
         }
 
         private void decode() {
@@ -81,6 +89,7 @@ final class FarmMobScanner {
             decoded = true;
             mobLine = fromJson(client, mobJson);
             dropLine = fromJson(client, dropJson);
+            bossDropLine = fromJson(client, bossDropJson);
         }
     }
 
@@ -97,6 +106,7 @@ final class FarmMobScanner {
     private static final int MAX_PAGES = 6;
     private static final Pattern PAGE_PATTERN = Pattern.compile("\\((\\d+)\\s*/\\s*(\\d+)\\)");
     private static final Pattern MOB_PATTERN = Pattern.compile("^mob\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern BOSS_DROP_PATTERN = Pattern.compile("^drops?\\s+the\\s+(.+)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern STAT_PATTERN = Pattern.compile("^([A-Za-z][A-Za-z0-9 '\\-]*?)\\s*:");
     private static final Set<String> NOT_DROPS = Set.of("health", "blood", "xp", "exp", "value");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -298,8 +308,10 @@ final class FarmMobScanner {
             if (info != null) {
                 info.mobJson = toJson(client, info.mobLine);
                 info.dropJson = toJson(client, info.dropLine);
+                info.bossDropJson = toJson(client, info.bossDropLine);
                 info.mobLine = null;
                 info.dropLine = null;
+                info.bossDropLine = null;
                 collected.put(key(info.crop), info);
             }
         }
@@ -359,6 +371,21 @@ final class FarmMobScanner {
         if (mob == null || mob.isEmpty()) {
             return null;
         }
+        // The farm's boss: its "Drops the <spawner>" line.
+        String bossDrop = null;
+        Component bossDropLine = null;
+        for (Component component : lines) {
+            String raw = component.getString();
+            String stripped = stripLeadingSymbols(clean(raw));
+            Matcher dropMatcher = BOSS_DROP_PATTERN.matcher(stripped);
+            if (bossDrop == null && dropMatcher.find()) {
+                bossDrop = stripLeadingSymbols(dropMatcher.group(1)).trim();
+                int the = raw.toLowerCase(Locale.ROOT).indexOf("the ");
+                if (the >= 0) {
+                    bossDropLine = sliceTrimmed(component, raw, the + 4, raw.length());
+                }
+            }
+        }
         String crop = clean(stack.getHoverName().getString()).trim();
         if (crop.isEmpty()) {
             return null;
@@ -369,6 +396,8 @@ final class FarmMobScanner {
         info.drop = drop;
         info.mobLine = mobLine;
         info.dropLine = dropLine;
+        info.bossDrop = bossDrop == null || bossDrop.isEmpty() ? null : bossDrop;
+        info.bossDropLine = bossDropLine;
         if (drop == null) {
             info.tooltip = new ArrayList<>();
             for (Component line : lines) {

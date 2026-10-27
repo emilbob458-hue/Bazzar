@@ -313,6 +313,11 @@ final class FarmWarpScreen extends Screen {
         } else if (info.drop != null && !info.drop.isBlank()) {
             lines.add(Component.literal("Drop: ").withColor(0x8E97A6).append(Component.literal(info.drop).withColor(0xFFD75A)));
         }
+        if (info.bossDropText() != null) {
+            lines.add(Component.literal("Boss: ").withColor(0x8E97A6).append(info.bossDropText()));
+        } else if (info.bossDrop != null) {
+            lines.add(Component.literal("Boss: ").withColor(0x8E97A6).append(Component.literal(info.bossDrop).withColor(0xB28CFF)));
+        }
         return lines;
     }
 
