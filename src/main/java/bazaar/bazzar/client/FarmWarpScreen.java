@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -51,10 +52,11 @@ final class FarmWarpScreen extends Screen {
     private static final int MUTED = 0xFF8E97A6;
     private static final int DONE_GREEN = 0xFF86EFAC;
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("([\\d.,]+\\s*[kmbt]?)\\s*/\\s*([\\d.,]+\\s*[kmbt]?)");
-    // Scoreboard pins read "3.40T Purple Paint (2.94T)": amount needed, then what you have in brackets.
     private static final Pattern HAVE_PATTERN = Pattern.compile("\\(([\\d.,]+\\s*[a-z]{0,4})\\)");
 
     private static final int HEADER_TEXT = 0xFFFFFFFF;
+
+    private static final Map<String, TargetEntry> seenPins = new LinkedHashMap<>();
 
     private final long openedAtMs = System.currentTimeMillis();
     private long closingSinceMs = -1L;
@@ -64,13 +66,11 @@ final class FarmWarpScreen extends Screen {
     private int favLeft;
     private int favTop;
     private int favW;
-    // Where the favorites panel was dragged to, -1 while it sits attached to the main panel.
     private int favX = -1;
     private int favY = -1;
     private boolean draggingFav;
     private int dragOffX;
     private int dragOffY;
-    // A quest or pinned row pressed with left click: a click warps, a drag onto the favorites panel favorites it.
     private FarmEntry pressedFarm;
     private boolean draggingTarget;
     private int pressX;
@@ -138,11 +138,12 @@ final class FarmWarpScreen extends Screen {
                 required = SbText.firstAmount(text);
                 progress = -1d;
             }
-            addTarget(text, "GQ", progress, required, seen);
+            addTarget(toTarget(text, "GQ", progress, required), seen);
         }
 
         List<ScoreboardReader.Line> lines = new ArrayList<>(ScoreboardReader.readSidebar(Minecraft.getInstance()));
         lines.sort(Comparator.comparingInt(ScoreboardReader.Line::score).reversed());
+        Set<String> livePins = new HashSet<>();
         boolean inPinned = false;
         for (ScoreboardReader.Line line : lines) {
             String text = line.normalizedText().trim();
@@ -157,25 +158,42 @@ final class FarmWarpScreen extends Screen {
             }
             Matcher matcher = PROGRESS_PATTERN.matcher(text);
             Matcher have = HAVE_PATTERN.matcher(text);
+            TargetEntry pin;
             if (matcher.find()) {
-                addTarget(text, "Pin", SbText.firstAmount(matcher.group(1)), SbText.firstAmount(matcher.group(2)), seen);
+                pin = toTarget(text, "Pin", SbText.firstAmount(matcher.group(1)), SbText.firstAmount(matcher.group(2)));
             } else if (have.find()) {
                 String needed = text.substring(0, have.start());
-                addTarget(text, "Pin", SbText.firstAmount(have.group(1)), SbText.firstAmount(needed), seen);
+                pin = toTarget(text, "Pin", SbText.firstAmount(have.group(1)), SbText.firstAmount(needed));
             } else {
-                addTarget(text, "Pin", -1d, SbText.firstAmount(text), seen);
+                pin = toTarget(text, "Pin", -1d, SbText.firstAmount(text));
+            }
+            if (pin != null) {
+                livePins.add(pin.id());
+                seenPins.put(pin.id(), pin);
+            }
+            addTarget(pin, seen);
+        }
+        if (!lines.isEmpty()) {
+            seenPins.replaceAll((id, pin) -> livePins.contains(id) ? pin : pin.asDone());
+        }
+        for (TargetEntry pin : seenPins.values()) {
+            if (!livePins.contains(pin.id())) {
+                addTarget(pin, seen);
             }
         }
         updatePanelWidth();
     }
 
-    private void addTarget(String text, String source, double progress, double required, Set<String> seen) {
-        if (targets.size() >= MAX_TARGETS) {
-            return;
+    private void addTarget(TargetEntry target, Set<String> seen) {
+        if (target != null && targets.size() < MAX_TARGETS && seen.add(target.id())) {
+            targets.add(target);
         }
+    }
+
+    private TargetEntry toTarget(String text, String source, double progress, double required) {
         FarmMatch match = matchFarm(text);
-        if (match == null || !seen.add(source + "|" + match.farm().command() + "|" + match.key())) {
-            return;
+        if (match == null) {
+            return null;
         }
         TargetType type = match.type();
         String lower = text.trim().toLowerCase(Locale.ROOT);
@@ -184,12 +202,9 @@ final class FarmWarpScreen extends Screen {
         } else if (lower.startsWith("mine")) {
             type = TargetType.MINING;
         }
-        targets.add(new TargetEntry(match.label(), source, type, progress, required, match.farm(), match.world()));
+        return new TargetEntry(match.label(), source, type, progress, required, match.farm(), match.world(), false);
     }
 
-    // Longest name wins, so "Ochre Froglight" beats "Froglight". On a tie a farm's own crop beats another
-    // farm's mob drop ("Red Mushroom" is the Red Mushroom farm, not the Pumpkin farm's Mooshroom drop),
-    // unless the quest is a kill quest.
     private FarmMatch matchFarm(String text) {
         String wanted = compact(text);
         if (wanted.isEmpty()) {
@@ -306,7 +321,6 @@ final class FarmWarpScreen extends Screen {
         return targetSectionY() + SECTION_HEADER_H + index * TARGET_ROW_H;
     }
 
-    // Favorites sit in their own panel to the left of the main one, as big rows like quests.
     private boolean showFavPanel() {
         return !favorites.isEmpty() || draggingTarget;
     }
@@ -339,7 +353,6 @@ final class FarmWarpScreen extends Screen {
         return favW > 0 && !favDetached();
     }
 
-    // The empty drop panel shown while dragging hangs off the main panel instead of shifting it.
     private boolean favInGroup() {
         return favAttached() && !favorites.isEmpty();
     }
@@ -525,7 +538,7 @@ final class FarmWarpScreen extends Screen {
 
                 int textY = ry + 5;
                 String amount = target.amountText();
-                boolean done = target.progress() >= 0d && target.required() > 0d && target.progress() >= target.required();
+                boolean done = target.done() || target.progress() >= 0d && target.required() > 0d && target.progress() >= target.required();
                 int amountX = right - font.width(amount);
                 graphics.drawString(font, amount, amountX, textY, done ? DONE_GREEN : 0xFFFFFFFF, false);
                 String type = target.type().label;
@@ -849,8 +862,19 @@ final class FarmWarpScreen extends Screen {
     private record FarmMatch(FarmEntry farm, WorldTab world, TargetType type, String label, String key) {}
 
     private record TargetEntry(String label, String source, TargetType type, double progress, double required,
-                               FarmEntry farm, WorldTab world) {
+                               FarmEntry farm, WorldTab world, boolean done) {
+        String id() {
+            return source + "|" + farm.command() + "|" + compact(label);
+        }
+
+        TargetEntry asDone() {
+            return done ? this : new TargetEntry(label, source, type, required, required, farm, world, true);
+        }
+
         String amountText() {
+            if (done && required <= 0d) {
+                return "Done";
+            }
             if (required <= 0d) {
                 return "?";
             }
