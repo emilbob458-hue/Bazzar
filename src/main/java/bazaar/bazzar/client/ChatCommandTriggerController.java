@@ -74,7 +74,9 @@ final class ChatCommandTriggerController {
         if (line == null || line.isBlank()) {
             return;
         }
-        String lower = line.toLowerCase(Locale.ROOT);
+        // only look at what was said, so a nickname like "hotdogckemi" can't fire a trigger
+        int bodyStart = line.indexOf('»');
+        String lower = (bodyStart >= 0 ? line.substring(bodyStart + 1) : line).toLowerCase(Locale.ROOT);
         long now = System.currentTimeMillis();
         String normalizedSender = normalizePlayerName(senderName);
         List<Boolean> selfOnlyFlags = BazzarConfig.load().chatTriggerSelfOnly;

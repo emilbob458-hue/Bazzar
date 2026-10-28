@@ -138,6 +138,11 @@ final class BazzarConfig {
         state.autoPunchIntervalSeconds = Math.max(5, Math.min(600, state.autoPunchIntervalSeconds));
         state.profitHudScale = Math.max(0.65f, Math.min(2.5f, state.profitHudScale));
         state.scoreboardGlowScale = Math.max(0.5f, Math.min(2.0f, state.scoreboardGlowScale));
+        if (state.milestoneSelected == null) {
+            state.milestoneSelected = new ArrayList<>();
+        }
+        state.milestoneMode = Math.max(0, Math.min(2, state.milestoneMode));
+        state.milestoneHudScale = Math.max(0.65f, Math.min(2.5f, state.milestoneHudScale));
         state.autoDumpPvPage = Math.max(1, Math.min(50, state.autoDumpPvPage));
         return state;
     }
@@ -371,5 +376,11 @@ final class BazzarConfig {
         boolean shardPayoutEnabled = false;
         double shardPayoutPrice = 0.0d;
         boolean gemPayoutEnabled = false;
+        boolean milestoneHudEnabled = true;
+        int milestoneMode = 0;
+        List<String> milestoneSelected = new ArrayList<>();
+        int milestoneHudX = 6;
+        int milestoneHudY = 60;
+        float milestoneHudScale = 1.0f;
     }
 }

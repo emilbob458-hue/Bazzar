@@ -448,6 +448,16 @@ final class FarmWarpScreen extends Screen {
                 farm("Pink Paint", "farm pinkpaint", new ItemStack(Items.PINK_DYE)),
                 farm("Black Paint", "farm blackpaint", new ItemStack(Items.BLACK_DYE))
         ));
+        worldCrops.put(WorldTab.WORLD_6, List.of(
+                farm("Crimson Nylium", "farm crimsonnylium", new ItemStack(Items.CRIMSON_NYLIUM)),
+                farm("Shroomlight", "farm shroomlight", new ItemStack(Items.SHROOMLIGHT)),
+                farm("Warped Wart", "farm warpedwart", new ItemStack(Items.WARPED_WART_BLOCK)),
+                farm("Nether Quartz", "farm netherquartz", new ItemStack(Items.NETHER_QUARTZ_ORE)),
+                farm("Gilded Blackstone", "farm gildedblackstone", new ItemStack(Items.GILDED_BLACKSTONE)),
+                farm("Redstone", "farm redstone", new ItemStack(Items.REDSTONE)),
+                farm("Raw Gold", "farm rawgold", new ItemStack(Items.RAW_GOLD)),
+                farm("Netherite", "farm netherite", new ItemStack(Items.NETHERITE_INGOT))
+        ));
     }
 
     @Override
@@ -651,7 +661,9 @@ final class FarmWarpScreen extends Screen {
 
     @Override
     public void tick() {
-        if (closingSinceMs < 0L && FarmMobScanner.shouldAutoScan()
+        boolean missingMobs = worldCrops.getOrDefault(WorldTab.WORLD_6, List.of()).stream()
+                .anyMatch(farm -> FarmMobScanner.get(farm.name()) == null);
+        if (closingSinceMs < 0L && FarmMobScanner.shouldAutoScan(missingMobs)
                 && FarmMobScanner.start(Minecraft.getInstance(), true)) {
             return;
         }
@@ -905,7 +917,8 @@ final class FarmWarpScreen extends Screen {
         WORLD_2("Frostcastle", "warp frostcastle", 0x1EF5DA, 0x2437A5),
         WORLD_3("Swamp", "warp swamp", 0x6A8F3A, 0x2E5E4E),
         WORLD_4("Honey", "warp honey", 0xFFC42E, 0xE3801A),
-        WORLD_5("Library", "warps library", 0xE0457B, 0x5B6CFF);
+        WORLD_5("Library", "warps library", 0xE0457B, 0x5B6CFF),
+        WORLD_6("Infernal Citadel", "warps infernalcitadel", 0xFF5A1F, 0xB0122E);
 
         final String displayName;
         final String warpCommand;

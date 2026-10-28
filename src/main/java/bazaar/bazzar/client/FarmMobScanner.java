@@ -103,7 +103,7 @@ final class FarmMobScanner {
     private static final int SETTLE_TICKS = 4;
     private static final int TIMEOUT_TICKS = 400;
     private static final int PAGE_TIMEOUT_TICKS = 40;
-    private static final int MAX_PAGES = 6;
+    private static final int MAX_PAGES = 8;
     private static final Pattern PAGE_PATTERN = Pattern.compile("\\((\\d+)\\s*/\\s*(\\d+)\\)");
     private static final Pattern MOB_PATTERN = Pattern.compile("^mob\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE);
     private static final Pattern BOSS_DROP_PATTERN = Pattern.compile("^drops?\\s+the\\s+(.+)$", Pattern.CASE_INSENSITIVE);
@@ -150,8 +150,8 @@ final class FarmMobScanner {
         return state != State.IDLE;
     }
 
-    static boolean shouldAutoScan() {
-        return !autoTried && !hasData() && !isScanning();
+    static boolean shouldAutoScan(boolean missingFarms) {
+        return !autoTried && (!hasData() || missingFarms) && !isScanning();
     }
 
     static boolean start(Minecraft client, boolean reopenAfter) {

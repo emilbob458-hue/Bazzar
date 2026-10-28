@@ -130,6 +130,7 @@ final class BazaarTrackerScreen extends Screen {
     private float animDelta;
     private int themeScroll;
     private int infoScroll;
+    private int milestoneScroll;
     private BazzarTheme pendingTheme = BazzarTheme.current();
     private boolean cookieFallbackOpen;
     private boolean cookieRushOpen;
@@ -433,6 +434,8 @@ final class BazaarTrackerScreen extends Screen {
             drawCookiePanel(graphics, mouseX, mouseY);
         } else if (activeMainTab == MainTab.HUD) {
             drawHudPanel(graphics, mouseX, mouseY);
+        } else if (activeMainTab == MainTab.MILESTONES) {
+            drawMilestonesPanel(graphics, mouseX, mouseY);
         } else if (activeMainTab == MainTab.THEMES) {
             drawThemesPanel(graphics, mouseX, mouseY);
         } else if (activeMainTab == MainTab.INFO) {
@@ -498,6 +501,7 @@ final class BazaarTrackerScreen extends Screen {
                         case PRESETS -> "Presets opened.";
                         case COOKIE -> "Cookie settings opened.";
                         case HUD -> "HUD settings opened.";
+                        case MILESTONES -> "Mob milestone settings opened.";
                         case THEMES -> "Theme gallery opened.";
                         case INFO -> "Commands and keybinds.";
                     };
@@ -582,6 +586,10 @@ final class BazaarTrackerScreen extends Screen {
 
         if (activeMainTab == MainTab.HUD) {
             return handleHudClick(mouseX, mouseY);
+        }
+
+        if (activeMainTab == MainTab.MILESTONES) {
+            return handleMilestonesClick(mouseX, mouseY);
         }
 
         if (activeMainTab == MainTab.THEMES) {
@@ -815,6 +823,7 @@ final class BazaarTrackerScreen extends Screen {
             case PRESETS -> "PRESETS";
             case COOKIE -> "COOKIE AUTOMATION";
             case HUD -> "HUD SETTINGS";
+            case MILESTONES -> "MOB MILESTONES";
             case THEMES -> "THEMES";
             case INFO -> "COMMANDS & INFO";
         };
@@ -866,6 +875,7 @@ final class BazaarTrackerScreen extends Screen {
             case GEM_FLIPS -> "";
             case AUTO_EGG -> AutoEggController.isEnabled() ? "ON" : "OFF";
             case HUD -> GuildQuestScanner.isAutoScanEnabled() ? "Auto ON · on refresh" : "Auto OFF";
+            case MILESTONES -> MobMilestones.hasData() ? MobMilestones.entries().size() + " mobs" : "Not scanned";
             case AUTO_CMD -> activeTriggerCount() + " active";
             case MACROS -> BazzarConfig.load().macroTimerEnabled ? "Timer ON" : "";
             case SHARD_PAY -> ShardPayController.isEnabled() ? "ON" : "OFF";
@@ -1982,6 +1992,7 @@ final class BazaarTrackerScreen extends Screen {
             {"/config list|save|set|delete <name>", "Save and load config presets"},
             {"/config public [list|view|apply|upload|delete]", "Browse public presets, or share yours with upload <name>"},
             {"/cookie <type>", "Use a cookie: auto, suspicious, cobbled, colossal, golden..."},
+            {"/milestonescan", "Read your kills from /milestones for the mob milestone HUD"},
             {"/blacklist <crop>", "Hide a crop from the tracker, run again to unhide"},
             {"/bazzarupdate [on|off]", "Check for an update now, or turn auto update on/off"},
             {"/bazzarusers [on|off]", "Show Bazzar users online, or turn being counted on/off"},
@@ -2269,6 +2280,11 @@ final class BazaarTrackerScreen extends Screen {
             themeScroll = Math.max(0, Math.min((int) (themeScroll - scrollY * 18.0d), maxScroll));
             return true;
         }
+        if (activeMainTab == MainTab.MILESTONES) {
+            int maxScroll = Math.max(0, milestoneGridTotalH() - milestoneGridAvailH());
+            milestoneScroll = Math.max(0, Math.min((int) (milestoneScroll - scrollY * 18.0d), maxScroll));
+            return true;
+        }
         if (activeMainTab == MainTab.INFO) {
             int maxScroll = Math.max(0, infoTotalH() - infoAvailH());
             infoScroll = Math.max(0, Math.min((int) (infoScroll - scrollY * 18.0d), maxScroll));
@@ -2327,6 +2343,15 @@ final class BazaarTrackerScreen extends Screen {
                 state.autoDumpPvPage = 1;
                 BazzarConfig.save(state);
                 statusText = "Misc settings reset.";
+            }
+            case MILESTONES -> {
+                MobMilestoneHud.resetPositionAndScale();
+                BazzarConfig.State state = BazzarConfig.load();
+                state.milestoneHudEnabled = true;
+                state.milestoneMode = MobMilestones.MODE_ALL;
+                state.milestoneSelected = new ArrayList<>();
+                BazzarConfig.save(state);
+                statusText = "Milestone settings reset.";
             }
             case HUD -> {
                 QuestCommandHud.resetPositionAndScale();
@@ -2461,6 +2486,160 @@ final class BazaarTrackerScreen extends Screen {
         }
 
         return false;
+    }
+
+    private void drawMilestonesPanel(GuiGraphics graphics, int mouseX, int mouseY) {
+        int contentX = contentX();
+        drawSettingRow(
+                graphics,
+                contentX,
+                settingsTop(),
+                "Milestone HUD",
+                "Show how many kills each mob needs to reach 25k",
+                milestoneToggleButton(),
+                MobMilestoneHud.isEnabled(),
+                mouseX,
+                mouseY
+        );
+
+        int modeY = milestoneModeY();
+        int mode = MobMilestoneHud.getMode();
+        graphics.drawString(font, "Show", contentX, modeY + 4, HEADER_TEXT, false);
+        for (int i = 0; i < 3; i++) {
+            drawPillButton(graphics, milestoneModeButton(i), MobMilestoneHud.modeLabel(i), mouseX, mouseY, true, mode == i);
+        }
+        String hint = switch (mode) {
+            case MobMilestones.MODE_SELECTED -> "Only the mobs you pick below";
+            case MobMilestones.MODE_CURRENT -> "Only the mob you are killing right now";
+            default -> "Every mob not at 25k yet, closest first";
+        };
+        graphics.drawString(font, font.plainSubstrByWidth(hint, contentW()), contentX, modeY + 21, MUTED_TEXT, false);
+
+        drawPillButton(graphics, milestoneScanButton(), MobMilestones.isScanning() ? "Scanning..." : "Scan Milestones",
+                mouseX, mouseY, !MobMilestones.isScanning(), false);
+        drawPillButton(graphics, milestoneResetButton(), "Reset HUD", mouseX, mouseY, true, false);
+        long scannedMs = MobMilestones.scannedMs();
+        String scanned = scannedMs <= 0L
+                ? "Not scanned yet"
+                : "Scanned " + SessionProfitHud.formatElapsed(System.currentTimeMillis() - scannedMs) + " ago";
+        int scannedX = milestoneResetButton().x() + milestoneResetButton().w() + 8;
+        graphics.drawString(font, font.plainSubstrByWidth(scanned, Math.max(0, contentRight() - scannedX)),
+                scannedX, milestoneButtonsY() + 4, MUTED_TEXT, false);
+
+        int gridTop = milestoneGridTop();
+        graphics.drawString(font, "Mobs (click to pick for Selected)", contentX, gridTop - 12, HEADER_TEXT, false);
+        List<MobMilestones.Entry> mobs = MobMilestones.entries();
+        if (mobs.isEmpty()) {
+            graphics.drawString(font, "Press Scan Milestones to load your mobs.", contentX, gridTop + 2, MUTED_TEXT, false);
+            return;
+        }
+        int availH = milestoneGridAvailH();
+        int maxScroll = Math.max(0, milestoneGridTotalH() - availH);
+        milestoneScroll = Math.max(0, Math.min(milestoneScroll, maxScroll));
+        boolean gridHovered = isInside(mouseX, mouseY, contentX, gridTop, contentW(), availH);
+        graphics.enableScissor(contentX, gridTop, contentX + contentW(), gridTop + availH);
+        for (int i = 0; i < mobs.size(); i++) {
+            ButtonBounds chip = milestoneChipBounds(i);
+            if (chip.y() + chip.h() < gridTop || chip.y() > gridTop + availH) {
+                continue;
+            }
+            MobMilestones.Entry entry = mobs.get(i);
+            String label = entry.done() ? entry.name + " ✔" : entry.name;
+            drawPillButton(graphics, chip, font.plainSubstrByWidth(label, chip.w() - 8),
+                    gridHovered ? mouseX : -1, gridHovered ? mouseY : -1, true,
+                    MobMilestoneHud.isSelected(MobMilestones.key(entry.name)));
+        }
+        graphics.disableScissor();
+        if (maxScroll > 0) {
+            int barH = Math.max(12, availH * availH / milestoneGridTotalH());
+            int barY = gridTop + (availH - barH) * milestoneScroll / maxScroll;
+            graphics.fill(contentRight() + 3, barY, contentRight() + 5, barY + barH, ACCENT_DIM);
+        }
+    }
+
+    private boolean handleMilestonesClick(int mouseX, int mouseY) {
+        if (isInside(mouseX, mouseY, milestoneToggleButton())) {
+            boolean enabled = !MobMilestoneHud.isEnabled();
+            MobMilestoneHud.setEnabled(enabled);
+            statusText = enabled ? "Milestone HUD enabled." : "Milestone HUD disabled.";
+            return true;
+        }
+        for (int i = 0; i < 3; i++) {
+            if (isInside(mouseX, mouseY, milestoneModeButton(i))) {
+                MobMilestoneHud.setMode(i);
+                statusText = "Milestone HUD shows: " + MobMilestoneHud.modeLabel(i) + ".";
+                return true;
+            }
+        }
+        if (isInside(mouseX, mouseY, milestoneScanButton())) {
+            Minecraft client = Minecraft.getInstance();
+            if (!MobMilestones.start(client)) {
+                statusText = "Can't scan milestones right now.";
+            }
+            return true;
+        }
+        if (isInside(mouseX, mouseY, milestoneResetButton())) {
+            MobMilestoneHud.resetPositionAndScale();
+            statusText = "Milestone HUD position and scale reset.";
+            return true;
+        }
+        if (!isInside(mouseX, mouseY, contentX(), milestoneGridTop(), contentW(), milestoneGridAvailH())) {
+            return false;
+        }
+        List<MobMilestones.Entry> mobs = MobMilestones.entries();
+        for (int i = 0; i < mobs.size(); i++) {
+            if (isInside(mouseX, mouseY, milestoneChipBounds(i))) {
+                String key = MobMilestones.key(mobs.get(i).name);
+                MobMilestoneHud.toggleSelected(key);
+                statusText = (MobMilestoneHud.isSelected(key) ? "Picked " : "Removed ") + mobs.get(i).name + ".";
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ButtonBounds milestoneToggleButton() {
+        return new ButtonBounds(contentRight() - 32, settingsTop() + 3, 32, 14);
+    }
+
+    private int milestoneModeY() {
+        return settingsTop() + settingRowStep();
+    }
+
+    private ButtonBounds milestoneModeButton(int index) {
+        return new ButtonBounds(contentX() + 34 + index * 72, milestoneModeY(), 68, 16);
+    }
+
+    private int milestoneButtonsY() {
+        return milestoneModeY() + 36;
+    }
+
+    private ButtonBounds milestoneScanButton() {
+        return new ButtonBounds(contentX(), milestoneButtonsY(), 106, 16);
+    }
+
+    private ButtonBounds milestoneResetButton() {
+        return new ButtonBounds(contentX() + 112, milestoneButtonsY(), 80, 16);
+    }
+
+    private int milestoneGridTop() {
+        return milestoneButtonsY() + 36;
+    }
+
+    private int milestoneGridAvailH() {
+        return Math.max(20, footerLineY() - 6 - milestoneGridTop());
+    }
+
+    private int milestoneGridTotalH() {
+        int rows = (MobMilestones.entries().size() + 2) / 3;
+        return Math.max(0, rows * 20 - 4);
+    }
+
+    private ButtonBounds milestoneChipBounds(int index) {
+        int chipW = (contentW() - 8) / 3;
+        int x = contentX() + (index % 3) * (chipW + 4);
+        int y = milestoneGridTop() + (index / 3) * 20 - milestoneScroll;
+        return new ButtonBounds(x, y, chipW, 16);
     }
 
     private boolean handleHudClick(int mouseX, int mouseY) {
@@ -3363,6 +3542,7 @@ final class BazaarTrackerScreen extends Screen {
         COOKIE("Cookie"),
         PRESETS("Presets"),
         HUD("HUD"),
+        MILESTONES("Milestones"),
         AUTO_EGG("Misc"),
         THEMES("Themes"),
         INFO("Info");
@@ -3377,7 +3557,7 @@ final class BazaarTrackerScreen extends Screen {
             return switch (this) {
                 case TRACKER, GEM_FLIPS, AUTO_SCAN -> "BAZAAR";
                 case AUTO_CMD, MACROS, SHARD_PAY, COOKIE, PRESETS -> "QUALITY OF LIFE";
-                case HUD, AUTO_EGG, THEMES -> "DISPLAY";
+                case HUD, MILESTONES, AUTO_EGG, THEMES -> "DISPLAY";
                 case INFO -> "HELP";
                 default -> "COBBLE";
             };

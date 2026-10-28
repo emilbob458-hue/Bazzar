@@ -25,7 +25,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.game.ServerboundChatCommandPacket;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.BossEvent;
+import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,14 +61,15 @@ public final class CookieController {
     private static final long AFK_DISABLE_REPLY_MS = 5_000L;
     private static final long RUSH_RESTORE_TIMEOUT_MS = 30_000L;
     private static final long RUSH_RESTORE_CHECK_MS = 2_500L;
-    private static final long RUSH_ENDED_IGNORE_MS = 15_000L;
+    private static final long RUSH_ENDED_IGNORE_MS = 500L;
+    private static final long RUSH_RESTORE_RECENT_MS = 3_000L;
     private static final long RUSH_LATE_SWITCH_MS = 15_000L;
     private static final Path RUSH_LOG = FabricLoader.getInstance().getConfigDir().resolve("bazzar").resolve("rush-log.txt");
     private static final Logger LOGGER = LoggerFactory.getLogger("bazzar");
     private static final Pattern COOKIE_GIFT_PATTERN =
             Pattern.compile("(?i)your\\s+cookie\\s+charm\\s+gifted\\s+you");
     private static final Pattern CHAIN_DONE_PATTERN =
-            Pattern.compile("(?i)rush\\s+chain\\s*\\(");
+            Pattern.compile("(?i)^\\s*⚡\\s*rush\\s+chain\\s*\\(");
     private static final Pattern RUSH_COUNTER_PATTERN =
             Pattern.compile("(?i)\u26a1\\s*[\\d.,]+\\s*[a-z]{0,3}x\\s*\u26a1");
     private static final Pattern COOKIE_SET_PATTERN =
@@ -94,6 +97,8 @@ public final class CookieController {
     private static long rushLateUntilMs = 0L;
     private static String rushLateTarget = null;
     private static String rushLateFrom = null;
+    private static long rushRestoreSentMs = 0L;
+    private static String rushRestoredTo = null;
     private static String lastUsedLabel = "";
     private static String lastCookieCommand = null;
     private static String chatActiveCookie = null;
@@ -268,16 +273,37 @@ public final class CookieController {
         if (now - lastRushTriggerMs < RUSH_TRIGGER_COOLDOWN_MS) {
             return;
         }
+        if (holdingSword(client)) {
+            logRush("  -> skipped, holding a sword");
+            lastRushTriggerMs = now;
+            return;
+        }
         String cookieType = normalizeCookieType(state.cookieRushType);
         if (cookieType == null) {
             cookieType = COOKIE_SUSPICIOUS;
         }
-        String previous = detectActiveCookie(client);
+        rushRestoreCheckAtMs = 0L;
+        rushRestoreTarget = null;
+        rushRestoreFrom = null;
+        rushLateFrom = null;
+        rushLateTarget = null;
+        // encore rush right after switching back: the bossbar can still show the rush cookie
+        boolean justRestored = now - rushRestoreSentMs < RUSH_RESTORE_RECENT_MS;
+        String previous = justRestored ? rushRestoredTo : detectActiveCookie(client);
         if (cookieType.equals(previous)) {
             lastRushTriggerMs = now;
             return;
         }
-        if (useCookie(client, CookieMode.AUTO, cookieType)) {
+        boolean switched;
+        if (justRestored) {
+            sendServerCommand(client, "cookie " + cookieType);
+            lastUsedLabel = cookieType;
+            lastCookieCommand = cookieType;
+            switched = true;
+        } else {
+            switched = useCookie(client, CookieMode.AUTO, cookieType);
+        }
+        if (switched) {
             logRush("  -> switched to " + cookieType + (previous == null ? " (no cookie before)" : " (was " + previous + ")"));
             lastRushTriggerMs = now;
             if (!rushCookiePending) {
@@ -322,6 +348,8 @@ public final class CookieController {
     private static void sendRushRestore(Minecraft client, String previous, String rushType) {
         rushLateFrom = null;
         rushLateTarget = null;
+        rushRestoreSentMs = System.currentTimeMillis();
+        rushRestoredTo = previous;
         if (previous != null) {
             sendServerCommand(client, "cookie " + previous);
             lastUsedLabel = previous;
@@ -395,8 +423,9 @@ public final class CookieController {
                     lastClaimAllMs = now;
                 }
             }
-            if (CHAIN_DONE_PATTERN.matcher(message).find()) {
+            if (CHAIN_DONE_PATTERN.matcher(SbText.stripFormattingCodes(message)).find()) {
                 lastRushChainEndMs = System.currentTimeMillis();
+                lastRushTriggerMs = 0L;
                 logRush("chat: " + message + (rushCookiePending ? " -> switching back" : ""));
                 if (rushCookiePending) {
                     endRushCookie(client);
@@ -812,7 +841,7 @@ public final class CookieController {
         if (active) {
             lastStableCelestialActive = true;
             if (!hadCelestialSession && now - lastAutoTriggerMs >= AUTO_TRIGGER_COOLDOWN_MS
-                    && useCookie(client, CookieMode.SUSPICIOUS)) {
+                    && !holdingSword(client) && useCookie(client, CookieMode.SUSPICIOUS)) {
                 lastAutoTriggerMs = now;
                 hadCelestialSession = true;
             }
@@ -832,6 +861,18 @@ public final class CookieController {
                 }
             }
         }
+    }
+
+    static boolean holdingSword(Minecraft client) {
+        if (client == null || client.player == null) {
+            return false;
+        }
+        ItemStack held = client.player.getMainHandItem();
+        if (held.isEmpty()) {
+            return false;
+        }
+        return BuiltInRegistries.ITEM.getKey(held.getItem()).getPath().contains("sword")
+                || held.getHoverName().getString().toLowerCase(Locale.ROOT).contains("sword");
     }
 
     private static boolean movementKeyDown(Minecraft client) {

@@ -29,6 +29,7 @@ public class BazzarClient implements ClientModInitializer {
         ShardPayController.applyConfig(config);
         SessionProfitHud.applyConfig(config);
         QuestCommandHud.applyConfig(config);
+        MobMilestoneHud.applyConfig(config);
         ShardCalculator.setShardPrice(config.shardPrice);
         ShardCalculator.setGemPrice(config.gemPrice);
         ShardCalculator.setCurrentMulti(config.currentMulti);
@@ -45,6 +46,7 @@ public class BazzarClient implements ClientModInitializer {
         AutoUpdater.registerCommands();
         UsageStats.registerCommands();
         PlayerStats.registerCommands();
+        MobMilestones.registerCommands();
         KeyMapping scanKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.bazzar.scan",
                 GLFW.GLFW_KEY_B,
@@ -89,6 +91,7 @@ public class BazzarClient implements ClientModInitializer {
         AutoUpdater.start();
         UsageStats.start();
         PlayerStats.start();
+        MobMilestones.registerEvents();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (BazzarGuard.isBlocked()) {
@@ -151,6 +154,8 @@ public class BazzarClient implements ClientModInitializer {
             BazaarAutoScanController.tick(client);
             GuildQuestScanner.tick(client);
             FarmMobScanner.tick(client);
+            MobMilestones.tick(client);
+            ChatTagCompletions.tick(client);
             MultiplierMenuScanner.tick(client);
             AutoUpdater.tick(client);
             UsageStats.tick(client);
@@ -163,7 +168,8 @@ public class BazzarClient implements ClientModInitializer {
             boolean shadyDirty = ShadySummonerTimerHud.consumeDirty();
             boolean questHudDirty = QuestCommandHud.consumeDirty();
             boolean profitHudDirty = SessionProfitHud.consumeDirty();
-            if (hudDirty || autoScanDirty || guildQuestDirty || shadyDirty || questHudDirty || profitHudDirty) {
+            boolean milestoneHudDirty = MobMilestoneHud.consumeDirty();
+            if (hudDirty || autoScanDirty || guildQuestDirty || shadyDirty || questHudDirty || profitHudDirty || milestoneHudDirty) {
                 BazzarConfig.State merged = BazzarConfig.load();
                 if (hudDirty) {
                     BazzarConfig.State hudOnly = PinnedBazaarHud.captureConfig();
@@ -186,6 +192,9 @@ public class BazzarClient implements ClientModInitializer {
                 }
                 if (profitHudDirty) {
                     SessionProfitHud.applyConfigToState(merged);
+                }
+                if (milestoneHudDirty) {
+                    MobMilestoneHud.applyConfigToState(merged);
                 }
                 BazzarConfig.save(merged);
             }
@@ -242,6 +251,7 @@ public class BazzarClient implements ClientModInitializer {
                 ShadySummonerTimerHud.render(graphics, graphics.guiWidth(), graphics.guiHeight(), -1, -1);
                 QuestCommandHud.render(graphics, -1, -1);
                 SessionProfitHud.render(graphics, -1, -1);
+                MobMilestoneHud.render(graphics, -1, -1);
             }
         });
 
@@ -251,6 +261,7 @@ public class BazzarClient implements ClientModInitializer {
                 ShadySummonerTimerHud.onMouseClick(scr, event);
                 QuestCommandHud.onMouseClick(scr, event);
                 SessionProfitHud.onMouseClick(scr, event);
+                MobMilestoneHud.onMouseClick(scr, event);
                 ScoreboardOverlay.onMouseClick(scr, event);
                 return false;
             });
@@ -259,6 +270,7 @@ public class BazzarClient implements ClientModInitializer {
                 ShadySummonerTimerHud.onMouseRelease(scr, event);
                 QuestCommandHud.onMouseRelease(scr, event);
                 SessionProfitHud.onMouseRelease(scr, event);
+                MobMilestoneHud.onMouseRelease(scr, event);
                 ScoreboardOverlay.onMouseRelease(scr, event);
                 return false;
             });
@@ -267,6 +279,7 @@ public class BazzarClient implements ClientModInitializer {
                 ShadySummonerTimerHud.onMouseDrag(scr, event, deltaX, deltaY);
                 QuestCommandHud.onMouseDrag(scr, event, deltaX, deltaY);
                 SessionProfitHud.onMouseDrag(scr, event, deltaX, deltaY);
+                MobMilestoneHud.onMouseDrag(scr, event, deltaX, deltaY);
                 ScoreboardOverlay.onMouseDrag(scr, event, deltaX, deltaY);
                 return false;
             });
@@ -274,6 +287,7 @@ public class BazzarClient implements ClientModInitializer {
                 PinnedBazaarHud.onMouseScroll(scr, mouseX, mouseY, horizontalAmount, verticalAmount);
                 QuestCommandHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 SessionProfitHud.onMouseScroll(mouseX, mouseY, verticalAmount);
+                MobMilestoneHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 ScoreboardOverlay.onMouseScroll(mouseX, mouseY, verticalAmount);
                 return false;
             });
@@ -283,6 +297,7 @@ public class BazzarClient implements ClientModInitializer {
                 ShadySummonerTimerHud.render(graphics, graphics.guiWidth(), graphics.guiHeight(), mouseX, mouseY);
                 QuestCommandHud.render(graphics, mouseX, mouseY);
                 SessionProfitHud.render(graphics, mouseX, mouseY);
+                MobMilestoneHud.render(graphics, mouseX, mouseY);
             });
         });
     }
