@@ -43,6 +43,7 @@ final class FarmWarpScreen extends Screen {
     private static final String QUESTS_OFF_LABEL = "Quests: Off";
     private static final int FAVORITE_GOLD = 0xFFD75A;
     private static final int TARGET_ROW_H = 18;
+    private static final int TIMER_ROW_H = 24;
     private static final int FAV_GAP = 6;
     private static final int FAV_ROW_H = 20;
     private static final int FAV_MAX_W = 190;
@@ -81,6 +82,7 @@ final class FarmWarpScreen extends Screen {
     private Component targetsLabel;
     private int refreshTicks;
     private boolean questsEnabled = true;
+    private boolean allQuestsDone;
     private final Map<WorldTab, List<FarmEntry>> worldCrops = new EnumMap<>(WorldTab.class);
     private final List<FavEntry> favorites = new ArrayList<>();
     private final Set<String> favoriteCommands = new HashSet<>();
@@ -119,18 +121,20 @@ final class FarmWarpScreen extends Screen {
     }
 
     private void updatePanelWidth() {
-        int needed = targets.isEmpty() ? contentWidth() : Math.max(contentWidth(), 260);
+        int needed = hasTargetSection() ? Math.max(contentWidth(), 260) : contentWidth();
         panelW = Math.min(Math.min(needed, MAX_PANEL_WIDTH), Math.max(240, width - 8));
     }
 
     private void reloadTargets() {
         targets.clear();
+        allQuestsDone = false;
         if (!questsEnabled) {
             updatePanelWidth();
             return;
         }
+        allQuestsDone = GuildQuestScanner.allDone();
         Set<String> seen = new HashSet<>();
-        for (GuildQuestScanner.QuestEntry quest : GuildQuestScanner.getLastEntries()) {
+        for (GuildQuestScanner.QuestEntry quest : GuildQuestScanner.getOpenEntries()) {
             String text = SbText.normalizeText(quest.name());
             double progress = amount(quest.leftValue());
             double required = amount(quest.rightValue());
@@ -309,8 +313,16 @@ final class FarmWarpScreen extends Screen {
         return targetSectionH();
     }
 
+    private boolean hasTargetSection() {
+        return !targets.isEmpty() || allQuestsDone;
+    }
+
     private int targetSectionH() {
-        return targets.isEmpty() ? 0 : SECTION_HEADER_H + targets.size() * TARGET_ROW_H + SECTION_PAD;
+        if (!hasTargetSection()) {
+            return 0;
+        }
+        int timerH = allQuestsDone ? TIMER_ROW_H : 0;
+        return SECTION_HEADER_H + targets.size() * TARGET_ROW_H + timerH + SECTION_PAD;
     }
 
     private int targetSectionY() {
@@ -531,7 +543,7 @@ final class FarmWarpScreen extends Screen {
             }
         }
 
-        if (!targets.isEmpty()) {
+        if (hasTargetSection()) {
             int ty = targetSectionY();
             graphics.fill(left + 8, ty, left + 10, ty + targetSectionH() - SECTION_PAD - 2, 0xCC7DD3FC);
             graphics.drawString(font, targetsLabel, left + 16, ty, 0xFFFFFFFF, false);
@@ -559,6 +571,16 @@ final class FarmWarpScreen extends Screen {
                 int nameX = left + 38;
                 String name = font.plainSubstrByWidth(target.label(), Math.max(0, sourceX - nameX - 6));
                 graphics.drawString(font, name, nameX, textY, 0xFFFFFFFF, false);
+            }
+            if (allQuestsDone) {
+                int timerY = targetRowY(targets.size());
+                graphics.drawString(font, "All quests done · new in", left + 16, timerY + 8, MUTED, false);
+                String timer = GuildQuestScanner.refreshCountdownText();
+                graphics.pose().pushMatrix();
+                graphics.pose().translate(right - font.width(timer) * 2, timerY + 3);
+                graphics.pose().scale(2.0f, 2.0f);
+                graphics.drawString(font, timer, 0, 0, DONE_GREEN, true);
+                graphics.pose().popMatrix();
             }
             int dy = ty + targetSectionH() - 4;
             graphics.fill(left + 8, dy, left + panelW - 8, dy + 1, theme.soft(0x44));

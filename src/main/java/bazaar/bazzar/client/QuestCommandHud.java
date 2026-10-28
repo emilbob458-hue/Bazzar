@@ -14,6 +14,7 @@ final class QuestCommandHud {
     private static final int HEADER_HEIGHT = 13;
     private static final int ROW_HEIGHT = 12;
     private static final int FOOTER_HEIGHT = 9;
+    private static final int TIMER_FOOTER_HEIGHT = 26;
     private static final int MAX_ROWS = 6;
     private static final int MIN_ROWS_VISIBLE = 2;
 
@@ -59,8 +60,8 @@ final class QuestCommandHud {
 
         drawScaledText(graphics, client, "PINNED QUESTS", 0, 3, theme.light(), 0.75f);
 
-        List<GuildQuestScanner.QuestEntry> entries = GuildQuestScanner.getLastEntries();
-        if (entries.isEmpty()) {
+        List<GuildQuestScanner.QuestEntry> entries = GuildQuestScanner.getOpenEntries();
+        if (GuildQuestScanner.getLastEntries().isEmpty()) {
             graphics.drawString(client.font, "Press K to scan /gq quests.", 0, HEADER_HEIGHT, MUTED_TEXT, true);
         } else {
             int drawRows = Math.min(MAX_ROWS, entries.size());
@@ -87,6 +88,13 @@ final class QuestCommandHud {
         }
 
         int footerY = HEADER_HEIGHT + (rowCount * ROW_HEIGHT) + 1;
+        if (GuildQuestScanner.allDone()) {
+            // every quest is finished, so the refresh timer takes over the whole list
+            drawScaledText(graphics, client, "ALL QUESTS DONE · NEW IN", 0, footerY, MUTED_TEXT, 0.75f);
+            drawScaledText(graphics, client, GuildQuestScanner.refreshCountdownText(), 0, footerY + 8, VALUE_DONE_COLOR, 2.0f);
+            graphics.pose().popMatrix();
+            return;
+        }
         int secondsLeft = GuildQuestScanner.getSecondsUntilQuestRefresh();
         String footerText;
         if (secondsLeft < 0) {
@@ -123,7 +131,8 @@ final class QuestCommandHud {
     }
 
     private static int panelHeight(int rowCount) {
-        return HEADER_HEIGHT + (rowCount * ROW_HEIGHT) + FOOTER_HEIGHT;
+        int footer = GuildQuestScanner.allDone() ? TIMER_FOOTER_HEIGHT : FOOTER_HEIGHT;
+        return HEADER_HEIGHT + (rowCount * ROW_HEIGHT) + footer;
     }
 
     static void onMouseClick(Screen screen, MouseButtonEvent event) {
@@ -162,7 +171,7 @@ final class QuestCommandHud {
         if (client == null || client.player == null) {
             return;
         }
-        List<GuildQuestScanner.QuestEntry> entries = GuildQuestScanner.getLastEntries();
+        List<GuildQuestScanner.QuestEntry> entries = GuildQuestScanner.getOpenEntries();
         if (entries.isEmpty()) {
             return;
         }
@@ -290,8 +299,10 @@ final class QuestCommandHud {
     }
 
     private static int visibleRows() {
-        List<GuildQuestScanner.QuestEntry> entries = GuildQuestScanner.getLastEntries();
-        return Math.max(MIN_ROWS_VISIBLE, Math.min(MAX_ROWS, entries.size()));
+        if (GuildQuestScanner.allDone()) {
+            return 0;
+        }
+        return Math.max(MIN_ROWS_VISIBLE, Math.min(MAX_ROWS, GuildQuestScanner.getOpenEntries().size()));
     }
 
     private static boolean shouldHandleInput() {

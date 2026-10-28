@@ -195,6 +195,37 @@ final class GuildQuestScanner {
         return lastEntries;
     }
 
+    static List<QuestEntry> getOpenEntries() {
+        List<QuestEntry> open = new ArrayList<>();
+        for (QuestEntry entry : lastEntries) {
+            if (!entry.done()) {
+                open.add(entry);
+            }
+        }
+        return open;
+    }
+
+    static boolean allDone() {
+        return !lastEntries.isEmpty() && getOpenEntries().isEmpty();
+    }
+
+    static String refreshCountdownText() {
+        int seconds = getSecondsUntilQuestRefresh();
+        if (seconds < 0) {
+            return "?";
+        }
+        if (seconds == 0) {
+            return "Ready";
+        }
+        int hours = seconds / 3600;
+        int minutes = (seconds % 3600) / 60;
+        int secs = seconds % 60;
+        if (hours > 0) {
+            return String.format(Locale.ROOT, "%dh %02dm %02ds", hours, minutes, secs);
+        }
+        return String.format(Locale.ROOT, "%dm %02ds", minutes, secs);
+    }
+
     static int getSecondsUntilQuestRefresh() {
         if (questsRefreshAtMs <= 0L) {
             return -1;
@@ -415,6 +446,15 @@ final class GuildQuestScanner {
 
         String rightValue() {
             return rightValue;
+        }
+
+        boolean done() {
+            if ("N/A".equals(leftValue) || "N/A".equals(rightValue)) {
+                return false;
+            }
+            double progress = SbText.firstAmount(leftValue.toLowerCase(Locale.ROOT));
+            double required = SbText.firstAmount(rightValue.toLowerCase(Locale.ROOT));
+            return required > 0d && progress >= required;
         }
     }
 }

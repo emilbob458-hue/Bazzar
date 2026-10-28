@@ -12,15 +12,15 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 
 final class MobMilestoneHud {
-    private static final int WIDTH = 176;
-    private static final int PAD = 5;
-    private static final int HEADER_HEIGHT = 16;
-    private static final int ROW_HEIGHT = 15;
-    private static final int FOOTER_HEIGHT = 10;
+    private static final int MIN_WIDTH = 90;
+    private static final int PAD = 3;
+    private static final int GAP = 4;
+    private static final int TITLE_HEIGHT = 11;
+    private static final int ROW_HEIGHT = 10;
     private static final int MAX_ROWS = 8;
-    private static final int PANEL_BG = 0xDB0C0E12;
-    private static final int PANEL_EDGE = 0x14FFFFFF;
-    private static final int TRACK = 0xFF2A3039;
+    private static final int TITLE_BG = 0x8C000000;
+    private static final int BODY_BG = 0x61000000;
+    private static final int DIVIDER = 0x1FFFFFFF;
     private static final int MUTED_TEXT = 0xFFB4BCC8;
     private static final int VALUE_TEXT = 0xFFE6E9EE;
     private static final int DONE_TEXT = 0xFF86EFAC;
@@ -28,7 +28,8 @@ final class MobMilestoneHud {
     private static int hudX = 6;
     private static int hudY = 60;
     private static float scale = 1.0f;
-    private static int height = HEADER_HEIGHT;
+    private static int width = MIN_WIDTH;
+    private static int height = TITLE_HEIGHT;
     private static boolean dragging = false;
     private static boolean dragMoved = false;
     private static int dragOffsetX = 0;
@@ -169,10 +170,32 @@ final class MobMilestoneHud {
 
         int shown = Math.min(MAX_ROWS, rows.size());
         int hidden = rows.size() - shown;
-        int bodyRows = emptyText != null ? 1 : shown;
-        height = HEADER_HEIGHT + bodyRows * ROW_HEIGHT + FOOTER_HEIGHT + 2;
+        String title = "Milestones";
+        String doneText = doneCount + "/" + all.size();
+        String moreText = hidden > 0 ? "+" + hidden + " more" : null;
 
-        int scaledW = Math.round(WIDTH * scale);
+        // size the strip to its widest line, like the vanilla sidebar
+        int pctW = Math.max(font.width("100%"), font.width("Done"));
+        int nameW = 0;
+        int leftW = 0;
+        for (int i = 0; i < shown; i++) {
+            MobMilestones.Entry entry = rows.get(i);
+            nameW = Math.max(nameW, font.width(entry.name));
+            if (!entry.done()) {
+                leftW = Math.max(leftW, font.width(shortCount(entry.remaining())));
+            }
+        }
+        int contentW = emptyText != null ? font.width(emptyText) : nameW + GAP + leftW + GAP + pctW;
+        contentW = Math.max(contentW, font.width("Done") + GAP + font.width(doneText));
+        if (moreText != null) {
+            contentW = Math.max(contentW, font.width(moreText));
+        }
+        width = Math.max(MIN_WIDTH, Math.max(font.width(title), contentW) + 2 * PAD);
+        int bodyRows = (emptyText != null ? 1 : shown) + (moreText != null ? 1 : 0);
+        int footerY = TITLE_HEIGHT + PAD + bodyRows * ROW_HEIGHT;
+        height = footerY + 4 + ROW_HEIGHT - 2 + PAD;
+
+        int scaledW = Math.round(width * scale);
         int scaledH = Math.round(height * scale);
         hudX = clamp(hudX, 2, Math.max(2, graphics.guiWidth() - scaledW - 2));
         hudY = HudBoxes.place("milestones", hudX, clamp(hudY, 2, Math.max(2, graphics.guiHeight() - scaledH - 2)),
@@ -182,51 +205,50 @@ final class MobMilestoneHud {
         graphics.pose().pushMatrix();
         graphics.pose().translate(hudX, hudY);
         graphics.pose().scale(scale, scale);
-        BazzarUi.fillRoundedRect(graphics, -1, -1, WIDTH + 2, height + 2, 7, PANEL_EDGE);
-        BazzarUi.fillRoundedRect(graphics, 0, 0, WIDTH, height, 6, PANEL_BG);
+        graphics.fill(0, 0, width, TITLE_HEIGHT, TITLE_BG);
+        graphics.fill(0, TITLE_HEIGHT, width, height, BODY_BG);
+        graphics.drawString(font, title, (width - font.width(title)) / 2, 2, theme.light(), true);
 
-        drawSmall(graphics, font, "MOB MILESTONES", PAD, PAD + 1, theme.light());
-        String modeText = modeLabel(mode).toUpperCase(Locale.ROOT);
-        drawSmall(graphics, font, modeText, WIDTH - PAD - Math.round(font.width(modeText) * 0.75f), PAD + 1, MUTED_TEXT);
-
-        int barW = WIDTH - 2 * PAD;
+        int rowY = TITLE_HEIGHT + PAD;
         if (emptyText != null) {
-            graphics.drawString(font, emptyText, PAD, HEADER_HEIGHT, MUTED_TEXT, false);
+            graphics.drawString(font, emptyText, PAD, rowY, MUTED_TEXT, true);
+            rowY += ROW_HEIGHT;
         } else {
             for (int i = 0; i < shown; i++) {
                 MobMilestones.Entry entry = rows.get(i);
-                int rowY = HEADER_HEIGHT + i * ROW_HEIGHT;
-                boolean done = entry.done();
-                String value = done ? "Done" : String.format(Locale.ROOT, "%,d left", entry.remaining());
-                int valueX = WIDTH - PAD - font.width(value);
-                graphics.drawString(font, value, valueX, rowY, done ? DONE_TEXT : theme.light(), false);
-                String name = font.plainSubstrByWidth(entry.name, valueX - PAD - 4);
-                graphics.drawString(font, name, PAD, rowY, VALUE_TEXT, false);
-
-                float progress = done ? 1.0f : Math.min(1.0f, entry.slain / (float) MobMilestones.TARGET);
-                int barY = rowY + 10;
-                BazzarUi.fillRoundedRect(graphics, PAD, barY, barW, 2, 1, TRACK);
-                int fillW = Math.round(barW * progress);
-                if (fillW > 0) {
-                    BazzarUi.fillRoundedRect(graphics, PAD, barY, fillW, 2, 1, done ? DONE_TEXT : theme.accent());
+                String pct;
+                int pctColor;
+                if (entry.done()) {
+                    pct = "Done";
+                    pctColor = DONE_TEXT;
+                } else {
+                    int percent = (int) (entry.slain * 100L / MobMilestones.TARGET);
+                    pct = percent + "%";
+                    pctColor = percent >= 90 ? DONE_TEXT : theme.light();
+                    String left = shortCount(entry.remaining());
+                    graphics.drawString(font, left, width - PAD - pctW - GAP - font.width(left), rowY, MUTED_TEXT, true);
                 }
+                graphics.drawString(font, pct, width - PAD - font.width(pct), rowY, pctColor, true);
+                String name = font.plainSubstrByWidth(entry.name, width - 2 * PAD - pctW - leftW - 2 * GAP);
+                graphics.drawString(font, name, PAD, rowY, VALUE_TEXT, true);
+                rowY += ROW_HEIGHT;
             }
         }
-
-        String footer = doneCount + "/" + all.size() + " done";
-        if (hidden > 0) {
-            footer += "  ·  +" + hidden + " more";
+        if (moreText != null) {
+            graphics.drawString(font, moreText, PAD, rowY, MUTED_TEXT, true);
         }
-        drawSmall(graphics, font, footer, PAD, height - FOOTER_HEIGHT, MUTED_TEXT);
+
+        graphics.fill(PAD, footerY + 1, width - PAD, footerY + 2, DIVIDER);
+        graphics.drawString(font, "Done", PAD, footerY + 4, MUTED_TEXT, true);
+        graphics.drawString(font, doneText, width - PAD - font.width(doneText), footerY + 4, DONE_TEXT, true);
         graphics.pose().popMatrix();
     }
 
-    private static void drawSmall(GuiGraphics graphics, Font font, String text, int x, int y, int color) {
-        graphics.pose().pushMatrix();
-        graphics.pose().translate(x, y);
-        graphics.pose().scale(0.75f, 0.75f);
-        graphics.drawString(font, text, 0, 0, color, false);
-        graphics.pose().popMatrix();
+    private static String shortCount(long value) {
+        if (value < 1000L) {
+            return Long.toString(value);
+        }
+        return String.format(Locale.ROOT, "%.1fk", value / 1000.0d).replace(".0k", "k");
     }
 
     static void onMouseClick(Screen screen, MouseButtonEvent event) {
@@ -286,7 +308,7 @@ final class MobMilestoneHud {
     }
 
     private static boolean isHovering(int mouseX, int mouseY) {
-        int scaledW = Math.round(WIDTH * scale);
+        int scaledW = Math.round(width * scale);
         int scaledH = Math.round(height * scale);
         return mouseX >= hudX && mouseX <= hudX + scaledW && mouseY >= hudY && mouseY <= hudY + scaledH;
     }
