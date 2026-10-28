@@ -63,7 +63,6 @@ final class PinnedBazaarHud {
         }
 
         List<Integer> visibleIndexes = getVisibleIndexes();
-        // In game with nothing pinned it's just an empty box, so only show it while a screen is open.
         if (visibleIndexes.isEmpty() && mouseX < 0) {
             return;
         }

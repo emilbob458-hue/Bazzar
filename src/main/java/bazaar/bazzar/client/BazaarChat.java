@@ -5,7 +5,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.TextColor;
 
-// Shared look for Bazaar chat messages: a gold-to-orange gradient "Bazaar »" tag.
 final class BazaarChat {
     static final String TAG = "Bazaar »";
     static final int GOLD = 0xFFD54A;

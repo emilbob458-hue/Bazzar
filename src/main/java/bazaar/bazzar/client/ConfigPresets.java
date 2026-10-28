@@ -101,7 +101,6 @@ final class ConfigPresets {
         return new Result(true, "Deleted preset " + name + ".");
     }
 
-    // The saved preset file, or null when there is none.
     static Path file(String rawName) {
         migrate();
         String name = clean(rawName);

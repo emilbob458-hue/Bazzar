@@ -8,7 +8,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.scores.DisplaySlot;
 import net.minecraft.world.scores.PlayerTeam;
 
-// Calls that differ between Minecraft versions. Stonecutter comments pick the right line per version.
 final class McCompat {
     private McCompat() {
     }

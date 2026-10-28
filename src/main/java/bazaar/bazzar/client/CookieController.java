@@ -364,7 +364,6 @@ public final class CookieController {
         }
     }
 
-    // The bubble shows an "AFK BUBBLE" title (see onTitle), milestones while in it and a summary in chat when it ends.
     private static void trackAfkBubble(String message) {
         if (message == null) {
             return;
@@ -419,7 +418,6 @@ public final class CookieController {
         if (nextCookie == null) {
             return;
         }
-        // /cookie toggles, so stepping down onto the cookie that's already running would turn it off.
         String active = detectActiveCookie(client);
         if (nextCookie.equals(active) || (rushCookiePending && nextCookie.equals(rushPreviousCookie))) {
             lastUsedLabel = nextCookie;
@@ -457,8 +455,6 @@ public final class CookieController {
         }
     }
 
-    // With high ping the server can apply the rush cookie after the rush already ended, so switch back
-    // as soon as that late confirmation comes in.
     private static void checkLateRushSwitch(Minecraft client, String message) {
         if (rushLateFrom == null || rushCookiePending || message == null
                 || client == null || client.player == null || client.player.connection == null) {
@@ -485,8 +481,6 @@ public final class CookieController {
         sendRushRestore(client, rushLateTarget, rushLateFrom);
     }
 
-    // The failsafe's /cookie can switch the cookie on instead of off (seen while AFK), so watch the reply
-    // and send it once more if that happens.
     private static void checkAfkDisableReply(Minecraft client, String message) {
         if (afkDisableType == null || message == null || client == null || client.player == null) {
             return;
@@ -510,12 +504,10 @@ public final class CookieController {
         McCompat.chat(client.player, prefix().append(Component.literal("AFK for 1 min, couldn't disable your cookie. Turn it off in /cookie.")));
     }
 
-    // No chat reply in time, so go by the cookie bossbar instead.
     private static void checkAfkDisableBossbar(Minecraft client, long now) {
         String running = detectActiveCookieFromBossbar(client);
         if (running == null) {
             afkDisableType = null;
-            // The cookie bossbar can be hidden during a celestial boost, so an empty bossbar proves nothing then.
             if (isCelestialBoostActive(client)) {
                 return;
             }
@@ -852,7 +844,6 @@ public final class CookieController {
                 || options.keyShift.isDown();
     }
 
-    // Only the player's own input counts, so getting launched or knocked around while AFK doesn't reset it.
     private static boolean updateAfkState(Minecraft client, long now) {
         var player = client.player;
         boolean moved = player.getYRot() != lastActivityYaw
@@ -896,7 +887,6 @@ public final class CookieController {
         return true;
     }
 
-    // The cookie bossbar isn't always readable (e.g. during a celestial boost), so fall back to what chat last said.
     private static String detectActiveCookie(Minecraft client) {
         String fromBossbar = detectActiveCookieFromBossbar(client);
         return fromBossbar != null ? fromBossbar : chatActiveCookie;

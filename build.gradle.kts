@@ -7,7 +7,6 @@ group = sc.properties.get<String>("mod.group")
 
 val requiredJava = if (sc.current.parsed >= "26.1") JavaVersion.VERSION_25 else JavaVersion.VERSION_21
 
-// Jar names like Bazzar_v1.12_1.21.11.jar. The updater matches on this, so keep the underscores.
 base {
     archivesName = "Bazzar_v${sc.properties.get<String>("mod.version")}_${sc.current.version}"
 }

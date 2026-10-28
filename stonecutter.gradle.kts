@@ -6,7 +6,6 @@ plugins {
 
 stonecutter active "1.21.11"
 
-// Renames between Minecraft 1.21.11 and 26.x, applied to the source when switching versions.
 stonecutter parameters {
     replacements {
         string(current.parsed >= "26.1") {

@@ -371,7 +371,6 @@ final class FarmMobScanner {
         if (mob == null || mob.isEmpty()) {
             return null;
         }
-        // The farm's boss: its "Drops the <spawner>" line.
         String bossDrop = null;
         Component bossDropLine = null;
         for (Component component : lines) {

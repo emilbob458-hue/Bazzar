@@ -1,41 +1,18 @@
-# Gradle
 .gradle/
 build/
-shady/build/
-shady/.gradle/
+run/
+bin/
+out/
 
-# IDE
 .idea/
 *.iml
 .vscode/
 .settings/
 .classpath
 .project
-bin/
-eclipse/
 
-# Minecraft run directory (world saves, logs, local configs)
-run/
-
-# Tooling / scratch dumps
-_jarinspect/
-_jarinspect2/
-.compass/
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Stray Windows reserved-name artifact
-/nul
-
-# Stray binaries / other mods / installers sitting in the project root
 /*.jar
 /*.exe
-
-# Decompile / remap extraction dumps
-_remap_extract/
-_remap_extract2/
-
-# Strip-build backups
-.strip-backup/

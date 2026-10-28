@@ -39,9 +39,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 
-// Public presets live on the same worker as /bazzarusers, under /presets.
 final class PublicPresets {
-    // Never uploaded and never overwritten by a public preset: your pay group, prices, timers and HUD spots.
     static final Set<String> LOCAL_ONLY = Set.of(
             "shardPayOwner", "shardPayMembers", "shardPayEnabled",
             "cobblePayEnabled", "gemPayEnabled",
@@ -93,8 +91,6 @@ final class PublicPresets {
                 .then(literal("delete").then(argument("code", StringArgumentType.word())
                         .executes(ctx -> runDelete(StringArgumentType.getString(ctx, "code")))));
     }
-
-    // Async API, callbacks run on the client thread.
 
     static void list(String sort, Consumer<List<Summary>> done, Consumer<String> failed) {
         async(() -> {
@@ -160,7 +156,6 @@ final class PublicPresets {
         }, done, failed);
     }
 
-    // Removes your public copies of a local preset, matched by name and your username. Gives how many were removed.
     static void unshare(String localName, Consumer<Integer> done, Consumer<String> failed) {
         String key = nameKey(localName);
         String author = Minecraft.getInstance().getUser().getName();
@@ -182,7 +177,6 @@ final class PublicPresets {
                     request("POST", "/presets/" + cleanCode(text(item, "code")) + "/delete", body.toString());
                     removed++;
                 } catch (IOException ignored) {
-                    // Same name and author, but uploaded from another install.
                 }
             }
             return removed;
@@ -193,7 +187,6 @@ final class PublicPresets {
         return Objects.requireNonNullElse(name, "").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", "");
     }
 
-    // Client thread.
     static ConfigPresets.Result apply(Preset preset) {
         BazzarConfig.State current = BazzarConfig.load();
         JsonObject merged = GSON.toJsonTree(current).getAsJsonObject();
@@ -218,7 +211,6 @@ final class PublicPresets {
         return new ConfigPresets.Result(true, "Applied " + preset.name() + " by " + preset.author() + ".");
     }
 
-    // Chat triggers and macros the preset would add or change, shown before applying.
     private static List<String> newCommands(JsonObject config) {
         JsonObject current = GSON.toJsonTree(BazzarConfig.load()).getAsJsonObject();
         List<String> lines = new ArrayList<>();
@@ -293,8 +285,6 @@ final class PublicPresets {
         }
         return keys;
     }
-
-    // Commands.
 
     private static int runList(CommandContext<FabricClientCommandSource> context, String sort) {
         say(Component.literal("Loading public presets...").withStyle(ChatFormatting.GRAY));
@@ -371,8 +361,6 @@ final class PublicPresets {
                 PublicPresets::sayError);
         return 1;
     }
-
-    // Helpers.
 
     private interface Call<T> {
         T run() throws Exception;

@@ -3,7 +3,6 @@ package bazaar.bazzar.client;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-// Where each HUD was last drawn, so HUDs never sit on top of each other.
 final class HudBoxes {
     private static final int GAP = 2;
     private static final Map<String, int[]> BOXES = new LinkedHashMap<>();
@@ -15,7 +14,6 @@ final class HudBoxes {
         BOXES.remove(id);
     }
 
-    // Records where a HUD is drawn, first pushing it down below any HUD it would cover. Returns the y to draw at.
     static int place(String id, int x, int y, int w, int h, int screenH) {
         int placedY = y;
         for (int tries = 0; tries <= BOXES.size(); tries++) {
@@ -32,7 +30,6 @@ final class HudBoxes {
         return placedY;
     }
 
-    // One drag step: takes the new spot if it's free, else slides along whichever axis is free, else stays put.
     static int[] drag(String id, int oldX, int oldY, int newX, int newY) {
         int[] box = BOXES.get(id);
         if (box == null) {

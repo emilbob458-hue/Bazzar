@@ -45,7 +45,6 @@ import net.minecraft.network.chat.MutableComponent;
 final class AutoUpdater {
     private static final String MOD_ID = "bazzar";
     private static final String TARGET_KEY = "bazzar:minecraft";
-    // Releases before the 26.2 build had one jar, made for this version.
     private static final String LEGACY_TARGET = "1.21.11";
     private static final String RELEASE_API = "https://api.github.com/repos/emilbob458-hue/Bazzar/releases/latest";
     private static final Path DIR = FabricLoader.getInstance().getConfigDir().resolve("bazzar").resolve("update");
@@ -221,7 +220,6 @@ final class AutoUpdater {
         }
 
         String target = target();
-        // Bazzar_v1.12_1.21.11.jar, or Bazzar-1.21.11.jar in v1.11.
         String wanted = ("_" + target + ".jar").toLowerCase(Locale.ROOT);
         String wantedOld = ("Bazzar-" + target + ".jar").toLowerCase(Locale.ROOT);
         JsonObject asset = null;

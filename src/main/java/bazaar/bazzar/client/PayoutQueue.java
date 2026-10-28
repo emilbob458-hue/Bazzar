@@ -25,7 +25,6 @@ final class PayoutQueue {
     private PayoutQueue() {
     }
 
-    // Said when an auto pay is turned on, so small sends being skipped isn't a surprise.
     static String minimumNote(String units) {
         return " Only pays when more than " + SbText.formatCompact(MIN_RECEIVED) + " " + units + " arrive at once.";
     }

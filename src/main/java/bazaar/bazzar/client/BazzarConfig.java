@@ -279,7 +279,6 @@ final class BazzarConfig {
         return loaded;
     }
 
-    // Older configs get the default trigger once, in the first empty row, unless they already have it.
     private static void addDefaultTrigger(State loaded) {
         loaded.defaultTriggerAdded = true;
         List<String> messages = loaded.chatTriggerMessages;
