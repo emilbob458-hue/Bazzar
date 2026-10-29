@@ -123,8 +123,57 @@ final class FarmMobScanner {
     private static boolean reopenWarpScreen = false;
     private static boolean autoTried = false;
     private static final Map<String, MobInfo> collected = new LinkedHashMap<>();
+    // the Infernal Citadel farms aren't in /warpfarm, so their info is copied from the farm warp menu
+    private static final Map<String, MobInfo> BUILT_IN = new LinkedHashMap<>();
+
+    static {
+        builtIn("Crimson Nylium", "Hoglin", 0xFF5555, "Nether Wart", 0xAA0000, null);
+        builtIn("Shroomlight", "Strider", 0xFFAA00, "Lava Bucket", 0xFFAA00, null);
+        builtIn("Warped Wart", "Zoglin", 0x55FFFF, "Rotten Hide", 0xC27A3A, null);
+        builtIn("Nether Quartz", "Zombified Piglin", 0xFFFFFF, "Gold Nugget", 0xFFFF55, "Michael Spawner");
+        builtIn("Gilded Blackstone", "Piglin", 0xFFAA00, "Nether Brick", 0xAA0000, null);
+        builtIn("Redstone", "Ghast", 0xFF5555, "Ghast Tear", 0xFFFFFF, null);
+        builtIn("Raw Gold", "Piglin Brute", 0xFFAA00, "Netherite Scrap", 0x8B6E5A, null);
+        builtIn("Netherite", "Wither Skeleton", 0xAAAAAA, "Withered Coal", 0x555555, null);
+    }
 
     private FarmMobScanner() {
+    }
+
+    private static void builtIn(String crop, String mob, int mobColor, String drop, int dropColor, String bossDrop) {
+        MobInfo info = new MobInfo();
+        info.crop = crop;
+        info.mob = mob;
+        info.drop = drop;
+        info.bossDrop = bossDrop;
+        info.mobLine = Component.literal(mob).withColor(mobColor);
+        info.dropLine = Component.literal(drop).withColor(dropColor);
+        info.bossDropLine = bossDrop == null ? null : Component.literal(bossDrop).withColor(0xFFAA00);
+        info.decoded = true;
+        BUILT_IN.put(key(crop), info);
+    }
+
+    static List<String> builtInMobs() {
+        List<String> mobs = new ArrayList<>();
+        for (MobInfo info : BUILT_IN.values()) {
+            mobs.add(info.mob);
+        }
+        return mobs;
+    }
+
+    static String mobForDrop(String drop) {
+        String wanted = key(drop);
+        if (wanted.isEmpty()) {
+            return null;
+        }
+        for (Map<String, MobInfo> farms : List.of(data().farms, BUILT_IN)) {
+            for (MobInfo info : farms.values()) {
+                if (wanted.equals(key(info.drop))) {
+                    return info.mob;
+                }
+            }
+        }
+        return null;
     }
 
     static MobInfo get(String cropName) {
@@ -133,6 +182,10 @@ final class FarmMobScanner {
         MobInfo exact = farms.get(wanted);
         if (exact != null || wanted.isEmpty()) {
             return exact;
+        }
+        MobInfo builtIn = BUILT_IN.get(wanted);
+        if (builtIn != null) {
+            return builtIn;
         }
         for (Map.Entry<String, MobInfo> entry : farms.entrySet()) {
             if (entry.getKey().startsWith(wanted) || wanted.startsWith(entry.getKey())) {
@@ -150,8 +203,8 @@ final class FarmMobScanner {
         return state != State.IDLE;
     }
 
-    static boolean shouldAutoScan(boolean missingFarms) {
-        return !autoTried && (!hasData() || missingFarms) && !isScanning();
+    static boolean shouldAutoScan() {
+        return !autoTried && !hasData() && !isScanning();
     }
 
     static boolean start(Minecraft client, boolean reopenAfter) {

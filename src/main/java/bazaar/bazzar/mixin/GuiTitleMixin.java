@@ -1,6 +1,7 @@
 package bazaar.bazzar.mixin;
 
 import bazaar.bazzar.client.CookieController;
+import bazaar.bazzar.client.MobMilestones;
 //? if >=26.1 {
 /*import net.minecraft.client.gui.Hud;
 *///?} else
@@ -34,6 +35,7 @@ public class GuiTitleMixin {
     private void bazzar$captureActionBar(Component message, boolean animateColor, CallbackInfo ci) {
         if (message != null) {
             CookieController.onTitle(message.getString());
+            MobMilestones.onActionBar(message.getString());
         }
     }
 }

@@ -25,6 +25,17 @@ final class MobMilestoneHud {
     private static final int VALUE_TEXT = 0xFFE6E9EE;
     private static final int DONE_TEXT = 0xFF86EFAC;
 
+    static final int STYLE_COMPACT = 0;
+    static final int STYLE_PANEL = 1;
+    private static final int PANEL_WIDTH = 176;
+    private static final int PANEL_PAD = 5;
+    private static final int PANEL_HEADER_HEIGHT = 16;
+    private static final int PANEL_ROW_HEIGHT = 15;
+    private static final int PANEL_FOOTER_HEIGHT = 10;
+    private static final int PANEL_BG = 0xDB0C0E12;
+    private static final int PANEL_EDGE = 0x14FFFFFF;
+    private static final int PANEL_TRACK = 0xFF2A3039;
+
     private static int hudX = 6;
     private static int hudY = 60;
     private static float scale = 1.0f;
@@ -66,6 +77,20 @@ final class MobMilestoneHud {
             case MobMilestones.MODE_CURRENT -> "Current";
             default -> "All";
         };
+    }
+
+    static int getStyle() {
+        return BazzarConfig.load().milestoneHudStyle;
+    }
+
+    static void setStyle(int style) {
+        BazzarConfig.State state = BazzarConfig.load();
+        state.milestoneHudStyle = style;
+        BazzarConfig.save(state);
+    }
+
+    static String styleLabel(int style) {
+        return style == STYLE_PANEL ? "Panel" : "Compact";
     }
 
     static boolean isSelected(String key) {
@@ -170,6 +195,10 @@ final class MobMilestoneHud {
 
         int shown = Math.min(MAX_ROWS, rows.size());
         int hidden = rows.size() - shown;
+        if (state.milestoneHudStyle == STYLE_PANEL) {
+            renderPanel(graphics, font, mode, rows, shown, hidden, emptyText, doneCount, all.size());
+            return;
+        }
         String title = "Milestones";
         String doneText = doneCount + "/" + all.size();
         String moreText = hidden > 0 ? "+" + hidden + " more" : null;
@@ -241,6 +270,100 @@ final class MobMilestoneHud {
         graphics.fill(PAD, footerY + 1, width - PAD, footerY + 2, DIVIDER);
         graphics.drawString(font, "Done", PAD, footerY + 4, MUTED_TEXT, true);
         graphics.drawString(font, doneText, width - PAD - font.width(doneText), footerY + 4, DONE_TEXT, true);
+        graphics.pose().popMatrix();
+    }
+
+    private static void renderPanel(GuiGraphics graphics, Font font, int mode, List<MobMilestones.Entry> rows,
+            int shown, int hidden, String emptyText, int doneCount, int total) {
+        int bodyRows = emptyText != null ? 1 : shown;
+        width = PANEL_WIDTH;
+        height = PANEL_HEADER_HEIGHT + bodyRows * PANEL_ROW_HEIGHT + PANEL_FOOTER_HEIGHT + 2;
+
+        int scaledW = Math.round(width * scale);
+        int scaledH = Math.round(height * scale);
+        hudX = clamp(hudX, 2, Math.max(2, graphics.guiWidth() - scaledW - 2));
+        hudY = HudBoxes.place("milestones", hudX, clamp(hudY, 2, Math.max(2, graphics.guiHeight() - scaledH - 2)),
+                scaledW, scaledH, graphics.guiHeight());
+
+        BazzarTheme theme = BazzarTheme.current();
+        graphics.pose().pushMatrix();
+        graphics.pose().translate(hudX, hudY);
+        graphics.pose().scale(scale, scale);
+        BazzarUi.fillRoundedRect(graphics, -1, -1, width + 2, height + 2, 7, PANEL_EDGE);
+        BazzarUi.fillRoundedRect(graphics, 0, 0, width, height, 6, PANEL_BG);
+
+        drawSmall(graphics, font, "MOB MILESTONES", PANEL_PAD, PANEL_PAD + 1, theme.light());
+        String modeText = modeLabel(mode).toUpperCase(Locale.ROOT);
+        drawSmall(graphics, font, modeText, width - PANEL_PAD - Math.round(font.width(modeText) * 0.75f), PANEL_PAD + 1, MUTED_TEXT);
+
+        int barW = width - 2 * PANEL_PAD;
+        if (emptyText != null) {
+            graphics.drawString(font, emptyText, PANEL_PAD, PANEL_HEADER_HEIGHT, MUTED_TEXT, false);
+        } else {
+            for (int i = 0; i < shown; i++) {
+                MobMilestones.Entry entry = rows.get(i);
+                int rowY = PANEL_HEADER_HEIGHT + i * PANEL_ROW_HEIGHT;
+                boolean done = entry.done();
+                String value = done ? "Done" : String.format(Locale.ROOT, "%,d left", entry.remaining());
+                int valueX = width - PANEL_PAD - font.width(value);
+                graphics.drawString(font, value, valueX, rowY, done ? DONE_TEXT : theme.light(), false);
+                String name = font.plainSubstrByWidth(entry.name, valueX - PANEL_PAD - 4);
+                graphics.drawString(font, name, PANEL_PAD, rowY, VALUE_TEXT, false);
+
+                float progress = done ? 1.0f : Math.min(1.0f, entry.slain / (float) MobMilestones.TARGET);
+                int barY = rowY + 10;
+                BazzarUi.fillRoundedRect(graphics, PANEL_PAD, barY, barW, 2, 1, PANEL_TRACK);
+                int fillW = Math.round(barW * progress);
+                if (fillW > 0) {
+                    BazzarUi.fillRoundedRect(graphics, PANEL_PAD, barY, fillW, 2, 1, done ? DONE_TEXT : theme.accent());
+                }
+            }
+        }
+
+        String footer = doneCount + "/" + total + " done";
+        if (hidden > 0) {
+            footer += "  ·  +" + hidden + " more";
+        }
+        String eta = etaText(mode, rows, shown, true);
+        int room = width - 2 * PANEL_PAD - 6;
+        if (eta != null && (font.width(footer) + font.width(eta)) * 0.75f > room) {
+            footer = doneCount + "/" + total + " done";
+            if ((font.width(footer) + font.width(eta)) * 0.75f > room) {
+                eta = etaText(mode, rows, shown, false);
+            }
+        }
+        drawSmall(graphics, font, footer, PANEL_PAD, height - PANEL_FOOTER_HEIGHT, MUTED_TEXT);
+        if (eta != null) {
+            drawSmall(graphics, font, eta, width - PANEL_PAD - Math.round(font.width(eta) * 0.75f),
+                    height - PANEL_FOOTER_HEIGHT, theme.light());
+        }
+        graphics.pose().popMatrix();
+    }
+
+    // time until the mob you're killing hits 25k, from the server's MPS
+    private static String etaText(int mode, List<MobMilestones.Entry> rows, int shown, boolean withName) {
+        MobMilestones.Entry current = MobMilestones.currentMob();
+        double mps = MobMilestones.currentMobMps();
+        if (current == null || current.done() || mps <= 0d || !rows.subList(0, shown).contains(current)) {
+            return null;
+        }
+        long seconds = Math.round(current.remaining() / mps);
+        String time;
+        if (seconds < 60L) {
+            time = "<1m";
+        } else if (seconds < 3600L) {
+            time = "~" + (seconds / 60L) + "m";
+        } else {
+            time = "~" + (seconds / 3600L) + "h " + (seconds % 3600L / 60L) + "m";
+        }
+        return (mode == MobMilestones.MODE_CURRENT || !withName ? "" : current.name + " ") + "25k in " + time;
+    }
+
+    private static void drawSmall(GuiGraphics graphics, Font font, String text, int x, int y, int color) {
+        graphics.pose().pushMatrix();
+        graphics.pose().translate(x, y);
+        graphics.pose().scale(0.75f, 0.75f);
+        graphics.drawString(font, text, 0, 0, color, false);
         graphics.pose().popMatrix();
     }
 

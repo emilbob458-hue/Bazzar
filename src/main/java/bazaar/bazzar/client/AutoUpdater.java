@@ -55,6 +55,15 @@ final class AutoUpdater {
     private static final Path HELPER_DIR = DIR.resolve("helper");
     private static final long RECHECK_MS = 30L * 60_000L;
     private static final long REMIND_MS = 5L * 60_000L;
+    // 5 or more versions behind, or below a "min-version: 1.19" line in the release notes, updates right away
+    private static final java.util.regex.Pattern MIN_VERSION_PATTERN =
+            java.util.regex.Pattern.compile("(?im)^\\s*min-version:\\s*v?([0-9][0-9.]*)");
+    private static final int FORCE_VERSIONS_BEHIND = 5;
+    private static final long FORCE_CLOSE_DELAY_MS = 60_000L;
+    private static final long FORCE_WARN_MS = 10_000L;
+    private static volatile boolean forced;
+    private static volatile long forceCloseAtMs;
+    private static long nextForceWarnMs;
     private static final AtomicBoolean CHECKING = new AtomicBoolean();
     private static long nextCheckMs;
     private static volatile String outdatedVersion;
@@ -85,6 +94,20 @@ final class AutoUpdater {
 
     static void tick(Minecraft client) {
         long now = System.currentTimeMillis();
+        long closeAt = forceCloseAtMs;
+        if (closeAt > 0L) {
+            if (now >= closeAt) {
+                forceCloseAtMs = 0L;
+                client.stop();
+                return;
+            }
+            if (client.player != null && now >= nextForceWarnMs) {
+                nextForceWarnMs = now + FORCE_WARN_MS;
+                long seconds = (closeAt - now + 999L) / 1000L;
+                McCompat.showTitle(client, 0, 50, 10, Component.literal("Closing in " + seconds + "s to update Bazzar")
+                        .withStyle(ChatFormatting.RED, ChatFormatting.BOLD));
+            }
+        }
         if (now >= nextCheckMs) {
             nextCheckMs = now + RECHECK_MS;
             checkAsync(false);
@@ -104,12 +127,7 @@ final class AutoUpdater {
     }
 
     private static void remind(String latest) {
-        String current;
-        try {
-            current = currentVersion().getFriendlyString();
-        } catch (VersionParsingException e) {
-            current = "?";
-        }
+        String current = currentVersionText();
         String how;
         if (Files.exists(DISABLED)) {
             how = "Use /bazzarupdate on to update.";
@@ -129,6 +147,9 @@ final class AutoUpdater {
     }
 
     private static int runCheck(CommandContext<FabricClientCommandSource> context) {
+        context.getSource().sendFeedback(prefix()
+                .append(Component.literal("You are on Bazzar ").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal(currentVersionText()).withStyle(ChatFormatting.AQUA)));
         if (Files.exists(DISABLED)) {
             context.getSource().sendFeedback(prefix()
                     .append(Component.literal("Auto update is OFF. Checking anyway... (/bazzarupdate on to enable)").withStyle(ChatFormatting.GRAY)));
@@ -209,6 +230,7 @@ final class AutoUpdater {
         JsonObject release = JsonParser.parseString(response.body()).getAsJsonObject();
         String tag = release.get("tag_name").getAsString();
         Version latest = parseVersion(tag);
+        forced = belowMinimum(release, current) || versionsBehind(current, latest) >= FORCE_VERSIONS_BEHIND;
 
         if (latest.compareTo(current) <= 0) {
             outdatedVersion = null;
@@ -252,9 +274,12 @@ final class AutoUpdater {
                 post("Bazzar " + latest.getFriendlyString() + " is downloaded. Restart Minecraft to finish updating.", ChatFormatting.AQUA);
             }
             markOutdated(latest.getFriendlyString(), manual);
+            if (forced) {
+                scheduleForceClose(latest.getFriendlyString());
+            }
             return;
         }
-        if (!manual && Files.exists(DISABLED)) {
+        if (!manual && !forced && Files.exists(DISABLED)) {
             markOutdated(latest.getFriendlyString(), false);
             return;
         }
@@ -290,11 +315,61 @@ final class AutoUpdater {
         Files.writeString(PENDING_VERSION, latest.getFriendlyString());
         post("Bazzar " + latest.getFriendlyString() + " downloaded. Restart Minecraft to use it.", ChatFormatting.AQUA);
         markOutdated(latest.getFriendlyString(), true);
+        if (forced) {
+            scheduleForceClose(latest.getFriendlyString());
+        }
+    }
+
+    // 1.20 -> 1.25 is 5 versions behind; a major version change always counts as too far behind
+    private static int versionsBehind(Version current, Version latest) {
+        int[] now = versionParts(current);
+        int[] newest = versionParts(latest);
+        if (now == null || newest == null) {
+            return 0;
+        }
+        if (newest[0] != now[0]) {
+            return newest[0] > now[0] ? Integer.MAX_VALUE : 0;
+        }
+        return newest[1] - now[1];
+    }
+
+    private static int[] versionParts(Version version) {
+        String[] parts = version.getFriendlyString().split("[.+-]");
+        try {
+            return new int[]{Integer.parseInt(parts[0]), parts.length > 1 ? Integer.parseInt(parts[1]) : 0};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static boolean belowMinimum(JsonObject release, Version current) {
+        if (!release.has("body") || release.get("body").isJsonNull()) {
+            return false;
+        }
+        java.util.regex.Matcher matcher = MIN_VERSION_PATTERN.matcher(release.get("body").getAsString());
+        if (!matcher.find()) {
+            return false;
+        }
+        try {
+            return current.compareTo(parseVersion(matcher.group(1))) < 0;
+        } catch (VersionParsingException e) {
+            return false;
+        }
+    }
+
+    // the jar can only be swapped while Minecraft shuts down, so close it after a warning
+    private static void scheduleForceClose(String latest) {
+        if (forceCloseAtMs > 0L) {
+            return;
+        }
+        forceCloseAtMs = System.currentTimeMillis() + FORCE_CLOSE_DELAY_MS;
+        post("This Bazzar version is no longer supported. Minecraft will close in 60 seconds to install "
+                + latest + ", just open it again after.", ChatFormatting.RED);
     }
 
     private static void applyPending() {
         try {
-            if (!Files.isRegularFile(PENDING_JAR) || !Files.isRegularFile(PENDING_VERSION) || Files.exists(DISABLED)) {
+            if (!Files.isRegularFile(PENDING_JAR) || !Files.isRegularFile(PENDING_VERSION) || (Files.exists(DISABLED) && !forced)) {
                 return;
             }
             Version pending = parseVersion(Files.readString(PENDING_VERSION).trim());
@@ -359,6 +434,14 @@ final class AutoUpdater {
         return FabricLoader.getInstance().getModContainer(MOD_ID)
                 .map(container -> container.getMetadata().getVersion())
                 .orElse(Version.parse("0"));
+    }
+
+    private static String currentVersionText() {
+        try {
+            return currentVersion().getFriendlyString();
+        } catch (VersionParsingException e) {
+            return "?";
+        }
     }
 
     private static Version parseVersion(String raw) throws VersionParsingException {

@@ -35,6 +35,13 @@ public class BazzarClient implements ClientModInitializer {
         ShardCalculator.setCurrentMulti(config.currentMulti);
     }
 
+    private static boolean isBazzarScreen(net.minecraft.client.gui.screens.Screen screen) {
+        return screen instanceof BazaarTrackerScreen
+                || screen instanceof FarmWarpScreen
+                || screen instanceof PvSearchScreen
+                || screen instanceof PayoutHistoryScreen;
+    }
+
     @Override
     public void onInitializeClient() {
         ShardCalculator.registerCommands();
@@ -47,6 +54,7 @@ public class BazzarClient implements ClientModInitializer {
         UsageStats.registerCommands();
         PlayerStats.registerCommands();
         MobMilestones.registerCommands();
+        CelestialTracker.registerCommands();
         KeyMapping scanKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.bazzar.scan",
                 GLFW.GLFW_KEY_B,
@@ -218,6 +226,7 @@ public class BazzarClient implements ClientModInitializer {
             CookieController.onChatMessage(client, msg);
             PlaytimeRewardsController.onChatLine(client, msg);
             CelestialBoosterReminder.onChatLine(client, msg);
+            CelestialTracker.onChatLine(client, msg);
         });
         ClientReceiveMessageEvents.CHAT.register((message, signedMessage, sender, params, receptionTimestamp) -> {
             if (BazzarGuard.isBlocked()) {
@@ -232,9 +241,11 @@ public class BazzarClient implements ClientModInitializer {
             CookieController.onChatMessage(client, msg);
             PlaytimeRewardsController.onChatLine(client, msg);
             CelestialBoosterReminder.onChatLine(client, msg);
+            CelestialTracker.onChatLine(client, msg);
         });
 
         ClientSendMessageEvents.COMMAND.register(CelestialBoosterReminder::onCommandSent);
+        ClientSendMessageEvents.ALLOW_CHAT.register(message -> BazzarGuard.isBlocked() || !CelestialTracker.onOwnChat(message));
         ClientSendMessageEvents.COMMAND.register(CookieController::onCommandSent);
         net.fabricmc.fabric.api.event.client.player.ClientPlayerBlockBreakEvents.AFTER.register(
                 (level, player, pos, state) -> BlockBreakCounter.onOwnBreak(pos));
@@ -256,6 +267,10 @@ public class BazzarClient implements ClientModInitializer {
         });
 
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+            // Bazzar's own screens cover the HUDs, so the HUDs must not draw over them or steal their clicks
+            if (isBazzarScreen(screen)) {
+                return;
+            }
             ScreenMouseEvents.afterMouseClick(screen).register((scr, event, canceled) -> {
                 PinnedBazaarHud.onMouseClick(scr, event);
                 ShadySummonerTimerHud.onMouseClick(scr, event);

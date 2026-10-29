@@ -130,6 +130,7 @@ final class BazaarTrackerScreen extends Screen {
     private float animDelta;
     private int themeScroll;
     private int infoScroll;
+    private int settingsScroll;
     private int milestoneScroll;
     private BazzarTheme pendingTheme = BazzarTheme.current();
     private boolean cookieFallbackOpen;
@@ -298,39 +299,32 @@ final class BazaarTrackerScreen extends Screen {
         }
     }
 
+    private void placeBox(EditBox box, int y, boolean tabShown) {
+        if (box == null) {
+            return;
+        }
+        box.setY(y);
+        boolean show = tabShown && insideSettingsView(y, box.getHeight());
+        box.visible = show;
+        box.active = show;
+    }
+
     private void updateTriggerBoxVisibility() {
         boolean show = activeMainTab == MainTab.AUTO_CMD;
         for (int i = 0; i < ChatCommandTriggerController.SLOT_COUNT; i++) {
-            if (triggerBoxes[i] != null) {
-                triggerBoxes[i].visible = show;
-                triggerBoxes[i].active = show;
-            }
-            if (commandBoxes[i] != null) {
-                commandBoxes[i].visible = show;
-                commandBoxes[i].active = show;
-            }
+            int rowY = settingsTop() + 30 + i * triggerRowStep();
+            placeBox(triggerBoxes[i], rowY, show);
+            placeBox(commandBoxes[i], rowY, show);
         }
         boolean showMacros = activeMainTab == MainTab.MACROS;
         for (int i = 0; i < MacroController.KEY_MACRO_COUNT; i++) {
-            if (macroBoxes[i] != null) {
-                macroBoxes[i].visible = showMacros;
-                macroBoxes[i].active = showMacros;
-            }
+            placeBox(macroBoxes[i], macroBoxesTop() + i * macroRowStep(), showMacros);
         }
-        if (macroTimerBox != null) {
-            macroTimerBox.visible = showMacros;
-            macroTimerBox.active = showMacros;
-        }
+        placeBox(macroTimerBox, macroTimerBoxY(), showMacros);
         boolean showShardPay = activeMainTab == MainTab.SHARD_PAY;
-        if (shardPayOwnerBox != null) {
-            shardPayOwnerBox.visible = showShardPay;
-            shardPayOwnerBox.active = showShardPay;
-        }
+        placeBox(shardPayOwnerBox, shardPayOwnerRowY(), showShardPay);
         for (int i = 0; i < ShardPayController.MEMBER_SLOT_COUNT; i++) {
-            if (shardPayMemberBoxes[i] != null) {
-                shardPayMemberBoxes[i].visible = showShardPay;
-                shardPayMemberBoxes[i].active = showShardPay;
-            }
+            placeBox(shardPayMemberBoxes[i], shardPayMembersTopY() + (i / 2) * shardMemberRowStep(), showShardPay);
         }
         if (presetNameBox != null) {
             boolean showPresets = activeMainTab == MainTab.PRESETS;
@@ -415,6 +409,11 @@ final class BazaarTrackerScreen extends Screen {
         BazzarUi.drawRoundedGlowBorder(graphics, left, top, panelW, panelH, 8);
         drawSidebar(graphics, mouseX, mouseY);
         drawSectionHeader(graphics);
+        settingsScroll = Math.max(0, Math.min(settingsScroll, settingsMaxScroll()));
+        boolean clipSettings = settingsMaxScroll() > 0;
+        if (clipSettings) {
+            graphics.enableScissor(left, settingsClipTop(), left + panelW, settingsClipBottom());
+        }
         if (activeMainTab == MainTab.TRACKER) {
             drawToolbar(graphics, mouseX, mouseY);
             drawList(graphics, mouseX, mouseY);
@@ -443,6 +442,14 @@ final class BazaarTrackerScreen extends Screen {
         } else {
             drawToolbar(graphics, mouseX, mouseY);
             drawGemFlipList(graphics, mouseX, mouseY);
+        }
+        if (clipSettings) {
+            graphics.disableScissor();
+            int viewH = settingsClipBottom() - settingsClipTop();
+            int contentH = viewH + settingsMaxScroll();
+            int barH = Math.max(12, viewH * viewH / contentH);
+            int barY = settingsClipTop() + (viewH - barH) * settingsScroll / settingsMaxScroll();
+            graphics.fill(contentRight() + 3, barY, contentRight() + 5, barY + barH, ACCENT_DIM);
         }
         drawFooter(graphics, mouseX, mouseY);
         if (activeMainTab == MainTab.COOKIE && cookieFallbackOpen) {
@@ -487,6 +494,7 @@ final class BazaarTrackerScreen extends Screen {
                 if (activeMainTab != tab) {
                     activeMainTab = tab;
                     lastActiveTab = tab;
+                    settingsScroll = 0;
                     if (tab == MainTab.GEM_FLIPS) {
                         reloadGemFlips();
                     }
@@ -528,6 +536,10 @@ final class BazaarTrackerScreen extends Screen {
 
         if (isInside(mouseX, mouseY, saveButton())) {
             saveAndClose();
+            return true;
+        }
+
+        if (settingsMaxScroll() > 0 && (mouseY < settingsClipTop() || mouseY >= settingsClipBottom())) {
             return true;
         }
 
@@ -738,11 +750,52 @@ final class BazaarTrackerScreen extends Screen {
     }
 
     private int settingsTop() {
-        return top + 38;
+        return top + 38 - (scrollsSettings() ? settingsScroll : 0);
+    }
+
+    // tabs with fixed rows scroll as a whole when the panel is too short for them
+    private boolean scrollsSettings() {
+        return switch (activeMainTab) {
+            case AUTO_SCAN, AUTO_EGG, AUTO_CMD, MACROS, SHARD_PAY, COOKIE, HUD -> true;
+            default -> false;
+        };
+    }
+
+    private int settingsClipTop() {
+        return top + 30;
+    }
+
+    private int settingsClipBottom() {
+        return footerLineY() - 2;
+    }
+
+    private int settingsContentH() {
+        return switch (activeMainTab) {
+            case AUTO_SCAN -> 122;
+            case AUTO_EGG -> 5 * miscRowStep() + 21;
+            case AUTO_CMD -> 30 + 7 * triggerRowStep() + 19;
+            case MACROS -> macroTimerBoxY() - settingsTop() + 14;
+            case SHARD_PAY -> shardGemsRowY() - settingsTop() + 21;
+            case COOKIE -> cookiePillRowY() - settingsTop() + 53;
+            case HUD -> 4 * settingRowStep() + 85;
+            default -> 0;
+        };
+    }
+
+    private int settingsMaxScroll() {
+        if (!scrollsSettings()) {
+            return 0;
+        }
+        return Math.max(0, settingsContentH() - (settingsClipBottom() - (top + 38)));
+    }
+
+    private boolean insideSettingsView(int y, int h) {
+        return !scrollsSettings() || (y >= settingsClipTop() && y + h <= settingsClipBottom());
     }
 
     private int settingRowStep() {
-        return panelH < 300 ? 34 : 40;
+        // the Cookie and HUD tabs stack 5 rows plus buttons, so shrink the step until they clear the footer
+        return Math.max(26, Math.min(40, (panelH - 160) / 4));
     }
 
     private int miscRowStep() {
@@ -1152,7 +1205,8 @@ final class BazaarTrackerScreen extends Screen {
             int boxTop = settingsTop() + 30 + i * triggerRowStep();
             boolean rowSelfOnly = selfOnly != null && i < selfOnly.size() && Boolean.TRUE.equals(selfOnly.get(i));
             if (rowSelfOnly) {
-                BazzarUi.drawRoundedGlowBorder(graphics, contentX + 12, boxTop - 3, available + 4, 22, 4);
+                int glowH = autoCmdRowH();
+                BazzarUi.drawRoundedGlowBorder(graphics, contentX + 12, boxTop - (glowH - 16) / 2, available + 4, glowH, 4);
             }
             int numberColor = rowSelfOnly ? ACCENT : MUTED_TEXT;
             graphics.drawString(font, String.valueOf(i + 1), contentX + 2, boxTop + 4, numberColor, false);
@@ -1164,11 +1218,17 @@ final class BazaarTrackerScreen extends Screen {
         int available = contentW() - 14 - 6;
         for (int i = 0; i < ChatCommandTriggerController.SLOT_COUNT; i++) {
             int boxTop = settingsTop() + 30 + i * triggerRowStep();
-            if (isInside(mouseX, mouseY, contentX + 2, boxTop - 3, available + 14, 22)) {
+            int rowH = autoCmdRowH();
+            if (isInside(mouseX, mouseY, contentX + 2, boxTop - (rowH - 16) / 2, available + 14, rowH)) {
                 return i;
             }
         }
         return -1;
+    }
+
+    private int autoCmdRowH() {
+        // rows are only 20px apart on small screens, so the hit box can't be taller than that
+        return Math.min(22, triggerRowStep());
     }
 
     private void drawMacrosPanel(GuiGraphics graphics, int mouseX, int mouseY) {
@@ -1993,6 +2053,9 @@ final class BazaarTrackerScreen extends Screen {
             {"/config public [list|view|apply|upload|delete]", "Browse public presets, or share yours with upload <name>"},
             {"/cookie <type>", "Use a cookie: auto, suspicious, cobbled, colossal, golden..."},
             {"/milestonescan", "Read your kills from /milestones for the mob milestone HUD"},
+            {"/requestcelestial", "Ask in chat for a Celestial Boost and see who has theirs ready"},
+            {"/celestials", "Who has their Celestial Boost ready, and everyone's 4h timer"},
+            {"accept celestial", "Type in chat (or click [Accept]) to run /celestialbooster for a request"},
             {"/blacklist <crop>", "Hide a crop from the tracker, run again to unhide"},
             {"/bazzarupdate [on|off]", "Check for an update now, or turn auto update on/off"},
             {"/bazzarusers [on|off]", "Show Bazzar users online, or turn being counted on/off"},
@@ -2280,6 +2343,10 @@ final class BazaarTrackerScreen extends Screen {
             themeScroll = Math.max(0, Math.min((int) (themeScroll - scrollY * 18.0d), maxScroll));
             return true;
         }
+        if (settingsMaxScroll() > 0) {
+            settingsScroll = Math.max(0, Math.min((int) (settingsScroll - scrollY * 18.0d), settingsMaxScroll()));
+            return true;
+        }
         if (activeMainTab == MainTab.MILESTONES) {
             int maxScroll = Math.max(0, milestoneGridTotalH() - milestoneGridAvailH());
             milestoneScroll = Math.max(0, Math.min((int) (milestoneScroll - scrollY * 18.0d), maxScroll));
@@ -2349,6 +2416,7 @@ final class BazaarTrackerScreen extends Screen {
                 BazzarConfig.State state = BazzarConfig.load();
                 state.milestoneHudEnabled = true;
                 state.milestoneMode = MobMilestones.MODE_ALL;
+                state.milestoneHudStyle = MobMilestoneHud.STYLE_COMPACT;
                 state.milestoneSelected = new ArrayList<>();
                 BazzarConfig.save(state);
                 statusText = "Milestone settings reset.";
@@ -2515,6 +2583,12 @@ final class BazaarTrackerScreen extends Screen {
         };
         graphics.drawString(font, font.plainSubstrByWidth(hint, contentW()), contentX, modeY + 21, MUTED_TEXT, false);
 
+        int style = MobMilestoneHud.getStyle();
+        graphics.drawString(font, "Style", contentX, milestoneStyleY() + 4, HEADER_TEXT, false);
+        for (int i = 0; i < 2; i++) {
+            drawPillButton(graphics, milestoneStyleButton(i), MobMilestoneHud.styleLabel(i), mouseX, mouseY, true, style == i);
+        }
+
         drawPillButton(graphics, milestoneScanButton(), MobMilestones.isScanning() ? "Scanning..." : "Scan Milestones",
                 mouseX, mouseY, !MobMilestones.isScanning(), false);
         drawPillButton(graphics, milestoneResetButton(), "Reset HUD", mouseX, mouseY, true, false);
@@ -2571,6 +2645,13 @@ final class BazaarTrackerScreen extends Screen {
                 return true;
             }
         }
+        for (int i = 0; i < 2; i++) {
+            if (isInside(mouseX, mouseY, milestoneStyleButton(i))) {
+                MobMilestoneHud.setStyle(i);
+                statusText = "Milestone HUD style: " + MobMilestoneHud.styleLabel(i) + ".";
+                return true;
+            }
+        }
         if (isInside(mouseX, mouseY, milestoneScanButton())) {
             Minecraft client = Minecraft.getInstance();
             if (!MobMilestones.start(client)) {
@@ -2607,11 +2688,20 @@ final class BazaarTrackerScreen extends Screen {
     }
 
     private ButtonBounds milestoneModeButton(int index) {
-        return new ButtonBounds(contentX() + 34 + index * 72, milestoneModeY(), 68, 16);
+        int pillW = Math.min(68, (contentW() - 34 - 8) / 3);
+        return new ButtonBounds(contentX() + 34 + index * (pillW + 4), milestoneModeY(), pillW, 16);
+    }
+
+    private int milestoneStyleY() {
+        return milestoneModeY() + 34;
+    }
+
+    private ButtonBounds milestoneStyleButton(int index) {
+        return milestoneModeButton(index).withY(milestoneStyleY());
     }
 
     private int milestoneButtonsY() {
-        return milestoneModeY() + 36;
+        return milestoneStyleY() + 24;
     }
 
     private ButtonBounds milestoneScanButton() {
@@ -3530,6 +3620,9 @@ final class BazaarTrackerScreen extends Screen {
     }
 
     private record ButtonBounds(int x, int y, int w, int h) {
+        ButtonBounds withY(int newY) {
+            return new ButtonBounds(x, newY, w, h);
+        }
     }
 
     private enum MainTab {

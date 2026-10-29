@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -64,7 +65,13 @@ public final class CookieController {
     private static final long RUSH_ENDED_IGNORE_MS = 500L;
     private static final long RUSH_RESTORE_RECENT_MS = 3_000L;
     private static final long RUSH_LATE_SWITCH_MS = 15_000L;
-    private static final Path RUSH_LOG = FabricLoader.getInstance().getConfigDir().resolve("bazzar").resolve("rush-log.txt");
+    private static final long COUNTER_LOG_GAP_MS = 5_000L;
+    private static final long RUSH_LOG_MAX_BYTES = 256_000L;
+    private static final int RUSH_LOG_KEEP_LINES = 2_000;
+    private static String lastCounterVerdict = null;
+    private static long lastCounterLogMs = 0L;
+    private static boolean rushLogTrimmed = false;
+    private static final Path RUSH_LOG =FabricLoader.getInstance().getConfigDir().resolve("bazzar").resolve("rush-log.txt");
     private static final Logger LOGGER = LoggerFactory.getLogger("bazzar");
     private static final Pattern COOKIE_GIFT_PATTERN =
             Pattern.compile("(?i)your\\s+cookie\\s+charm\\s+gifted\\s+you");
@@ -245,8 +252,14 @@ public final class CookieController {
         }
         boolean justEnded = System.currentTimeMillis() - lastRushChainEndMs < RUSH_ENDED_IGNORE_MS;
         String verdict = justEnded ? "ignored (rush already ended)" : "rush started";
-        LOGGER.info("[Bazzar] rush counter \"{}\" -> {}", text, verdict);
-        logRush("title: " + text + " -> " + verdict);
+        // the counter title updates ~10 times a second, so only log it when the verdict changes
+        long now = System.currentTimeMillis();
+        if (!verdict.equals(lastCounterVerdict) || now - lastCounterLogMs >= COUNTER_LOG_GAP_MS) {
+            lastCounterVerdict = verdict;
+            lastCounterLogMs = now;
+            LOGGER.info("[Bazzar] rush counter \"{}\" -> {}", text, verdict);
+            logRush("title: " + text + " -> " + verdict);
+        }
         if (!justEnded) {
             onRushFound(Minecraft.getInstance());
         }
@@ -255,6 +268,13 @@ public final class CookieController {
     private static void logRush(String line) {
         try {
             Files.createDirectories(RUSH_LOG.getParent());
+            if (!rushLogTrimmed) {
+                rushLogTrimmed = true;
+                if (Files.exists(RUSH_LOG) && Files.size(RUSH_LOG) > RUSH_LOG_MAX_BYTES) {
+                    List<String> lines = Files.readAllLines(RUSH_LOG);
+                    Files.write(RUSH_LOG, lines.subList(Math.max(0, lines.size() - RUSH_LOG_KEEP_LINES), lines.size()));
+                }
+            }
             Files.writeString(RUSH_LOG, LocalTime.now() + " " + line + System.lineSeparator(),
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException ignored) {

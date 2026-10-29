@@ -142,6 +142,7 @@ final class BazzarConfig {
             state.milestoneSelected = new ArrayList<>();
         }
         state.milestoneMode = Math.max(0, Math.min(2, state.milestoneMode));
+        state.milestoneHudStyle = Math.max(0, Math.min(1, state.milestoneHudStyle));
         state.milestoneHudScale = Math.max(0.65f, Math.min(2.5f, state.milestoneHudScale));
         state.autoDumpPvPage = Math.max(1, Math.min(50, state.autoDumpPvPage));
         return state;
@@ -382,5 +383,6 @@ final class BazzarConfig {
         int milestoneHudX = 6;
         int milestoneHudY = 60;
         float milestoneHudScale = 1.0f;
+        int milestoneHudStyle = 0;
     }
 }

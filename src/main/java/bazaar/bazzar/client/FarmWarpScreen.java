@@ -3,6 +3,7 @@ package bazaar.bazzar.client;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,6 +36,10 @@ final class FarmWarpScreen extends Screen {
     private static final int BOTTOM_PAD = 8;
     private static final int HINT_H = 14;
     private static final String WORLD_HINT = "Warp to world ▶";
+    private static final Map<String, String> MOB_EGG_ALIASES = Map.of(
+            "honey_bear", "polar_bear",
+            "librarian", "villager"
+    );
     private static final String FAVORITE_HINT = "Right click a crop to favorite it";
     private static final String DROP_HINT = "Drop to favorite";
     private static final String SCAN_LABEL = "Scan mobs";
@@ -58,6 +63,8 @@ final class FarmWarpScreen extends Screen {
     private static final int HEADER_TEXT = 0xFFFFFFFF;
 
     private static final Map<String, TargetEntry> seenPins = new LinkedHashMap<>();
+    private static final Map<String, Long> pinSeenMs = new HashMap<>();
+    private static final long PIN_FORGET_MS = 10 * 60_000L;
 
     private final long openedAtMs = System.currentTimeMillis();
     private long closingSinceMs = -1L;
@@ -172,14 +179,19 @@ final class FarmWarpScreen extends Screen {
                 pin = toTarget(text, "Pin", -1d, SbText.firstAmount(text));
             }
             if (pin != null) {
+                if (pin.required() > 0d && pin.progress() >= pin.required()) {
+                    pin = pin.asDone();
+                }
                 livePins.add(pin.id());
                 seenPins.put(pin.id(), pin);
+                pinSeenMs.put(pin.id(), System.currentTimeMillis());
             }
             addTarget(pin, seen);
         }
-        if (!lines.isEmpty()) {
-            seenPins.replaceAll((id, pin) -> livePins.contains(id) ? pin : pin.asDone());
-        }
+        // the scoreboard only shows 3 pins at a time, so a missing pin is usually just on another page:
+        // keep its last progress, and only forget it once it hasn't come back for a while (unpinned)
+        long now = System.currentTimeMillis();
+        seenPins.keySet().removeIf(id -> now - pinSeenMs.getOrDefault(id, now) > PIN_FORGET_MS);
         for (TargetEntry pin : seenPins.values()) {
             if (!livePins.contains(pin.id())) {
                 addTarget(pin, seen);
@@ -206,7 +218,19 @@ final class FarmWarpScreen extends Screen {
         } else if (lower.startsWith("mine")) {
             type = TargetType.MINING;
         }
-        return new TargetEntry(match.label(), source, type, progress, required, match.farm(), match.world(), false);
+        return new TargetEntry(match.label(), source, type, progress, required, match.farm(), match.world(),
+                targetIcon(match), false);
+    }
+
+    // a mob or drop target shows its own egg or item, the farm icon is only for crops
+    private static ItemStack targetIcon(FarmMatch match) {
+        if (match.type() != TargetType.COMBAT) {
+            return match.farm().icon();
+        }
+        String id = match.label().trim().toLowerCase(Locale.ROOT).replace(' ', '_').replaceAll("[^a-z0-9_]", "");
+        String egg = MOB_EGG_ALIASES.getOrDefault(id, id);
+        ItemStack icon = itemStack(Items.AIR, "minecraft:" + egg + "_spawn_egg", "minecraft:" + id);
+        return icon.isEmpty() ? match.farm().icon() : icon;
     }
 
     private FarmMatch matchFarm(String text) {
@@ -556,7 +580,7 @@ final class FarmWarpScreen extends Screen {
                     hoveredCropLabel = BazzarUi.gradientText(target.farm().name() + " farm", target.world().gradFrom, target.world().gradTo, false);
                     hoveredFarm = target.farm();
                 }
-                graphics.renderItem(target.farm().icon(), left + 16, ry + 1);
+                graphics.renderItem(target.icon(), left + 16, ry + 1);
 
                 int textY = ry + 5;
                 String amount = target.amountText();
@@ -683,9 +707,7 @@ final class FarmWarpScreen extends Screen {
 
     @Override
     public void tick() {
-        boolean missingMobs = worldCrops.getOrDefault(WorldTab.WORLD_6, List.of()).stream()
-                .anyMatch(farm -> FarmMobScanner.get(farm.name()) == null);
-        if (closingSinceMs < 0L && FarmMobScanner.shouldAutoScan(missingMobs)
+        if (closingSinceMs < 0L && FarmMobScanner.shouldAutoScan()
                 && FarmMobScanner.start(Minecraft.getInstance(), true)) {
             return;
         }
@@ -896,13 +918,13 @@ final class FarmWarpScreen extends Screen {
     private record FarmMatch(FarmEntry farm, WorldTab world, TargetType type, String label, String key) {}
 
     private record TargetEntry(String label, String source, TargetType type, double progress, double required,
-                               FarmEntry farm, WorldTab world, boolean done) {
+                               FarmEntry farm, WorldTab world, ItemStack icon, boolean done) {
         String id() {
             return source + "|" + farm.command() + "|" + compact(label);
         }
 
         TargetEntry asDone() {
-            return done ? this : new TargetEntry(label, source, type, required, required, farm, world, true);
+            return done ? this : new TargetEntry(label, source, type, required, required, farm, world, icon, true);
         }
 
         String amountText() {

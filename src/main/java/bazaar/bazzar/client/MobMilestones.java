@@ -37,7 +37,7 @@ import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
-final class MobMilestones {
+public final class MobMilestones {
     static final long TARGET = 25_000L;
 
     static final int MODE_ALL = 0;
@@ -88,6 +88,10 @@ final class MobMilestones {
     private static final double SPLASH_RANGE = 5.0d;
     private static final long SAVE_DELAY_MS = 30_000L;
     private static final Pattern SLAIN_PATTERN = Pattern.compile("([0-9][0-9,]*)\\s*slain", Pattern.CASE_INSENSITIVE);
+    private static final Pattern MPS_PATTERN = Pattern.compile("([0-9][0-9.,]*)\\s*([kK]?)\\s*MPS\\b");
+    private static final Pattern GAIN_PATTERN = Pattern.compile("\\+[0-9][0-9.,]*[a-zA-Z]?\\s+([A-Za-z][A-Za-z' ]*?)\\s*\\(");
+    private static final long MPS_FRESH_MS = 1_500L;
+    private static final long MAX_MPS_STEP_MS = 250L;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path DATA_PATH = Path.of(System.getProperty("user.home"), ".bazzar", "mob_milestones.json");
 
@@ -106,6 +110,13 @@ final class MobMilestones {
     private static long lastAttackMs = 0L;
     private static long unsavedSinceMs = 0L;
     private static String currentMobKey = null;
+    private static double mps = 0d;
+    private static long mpsSeenMs = 0L;
+    private static long lastMpsStepMs = 0L;
+    private static double pendingKills = 0d;
+    private static double smoothedMps = 0d;
+    private static final double MPS_SMOOTH_MS = 30_000d;
+    private static final long MPS_IDLE_MS = 10_000L;
 
     private MobMilestones() {
     }
@@ -173,7 +184,10 @@ final class MobMilestones {
             COUNTED_DEAD.clear();
             return;
         }
-        countKills(client);
+        long now = System.currentTimeMillis();
+        boolean mpsActive = now - mpsSeenMs <= MPS_FRESH_MS;
+        countKills(client, !mpsActive);
+        countFromMps(now, mpsActive);
         if (unsavedSinceMs > 0L && System.currentTimeMillis() - unsavedSinceMs >= SAVE_DELAY_MS) {
             save();
         }
@@ -254,8 +268,10 @@ final class MobMilestones {
         boolean found = !collected.isEmpty();
         if (found) {
             Data data = data();
+            Map<String, Entry> previous = new LinkedHashMap<>(data.mobs);
             data.mobs.clear();
             data.mobs.putAll(collected);
+            addBuiltInMobs(data, previous);
             data.scannedMs = System.currentTimeMillis();
             save();
         }
@@ -276,7 +292,77 @@ final class MobMilestones {
         }
     }
 
-    private static void countKills(Minecraft client) {
+    public static void onActionBar(String text) {
+        if (text == null) {
+            return;
+        }
+        String line = clean(text);
+        Matcher matcher = MPS_PATTERN.matcher(line);
+        if (!matcher.find()) {
+            return;
+        }
+        try {
+            double value = Double.parseDouble(matcher.group(1).replace(",", ""));
+            mps = matcher.group(2).isEmpty() ? value : value * 1000d;
+            mpsSeenMs = System.currentTimeMillis();
+        } catch (NumberFormatException ignored) {
+            return;
+        }
+        // "+20 Paper (285k)" tells us which mob is dying, even when abilities do the killing
+        Matcher gain = GAIN_PATTERN.matcher(line);
+        while (gain.find()) {
+            String key = key(FarmMobScanner.mobForDrop(gain.group(1).trim()));
+            if (!key.isEmpty() && data().mobs.containsKey(key)) {
+                currentMobKey = key;
+                return;
+            }
+        }
+    }
+
+    private static void countFromMps(long now, boolean mpsActive) {
+        long last = lastMpsStepMs;
+        lastMpsStepMs = now;
+        if (!mpsActive || last == 0L) {
+            pendingKills = 0d;
+            if (now - mpsSeenMs > MPS_IDLE_MS) {
+                smoothedMps = 0d;
+            }
+            return;
+        }
+        long step = Math.min(MAX_MPS_STEP_MS, now - last);
+        // MPS jumps between 2 and 13 from tick to tick, so the time estimates use a ~30s average
+        smoothedMps = smoothedMps <= 0d ? mps : smoothedMps + (mps - smoothedMps) * Math.min(1d, step / MPS_SMOOTH_MS);
+        pendingKills += mps * step / 1000d;
+        if (pendingKills < 1d) {
+            return;
+        }
+        long whole = (long) pendingKills;
+        pendingKills -= whole;
+        SessionProfitHud.onKills(whole);
+        Entry entry = get(currentMobKey);
+        if (entry == null) {
+            return;
+        }
+        entry.slain += whole;
+        if (unsavedSinceMs == 0L) {
+            unsavedSinceMs = now;
+        }
+    }
+
+    static double smoothedMps() {
+        return smoothedMps;
+    }
+
+    // kills a second for the mob you're on, or 0 when nothing is dying right now
+    static double currentMobMps() {
+        return System.currentTimeMillis() - mpsSeenMs <= MPS_IDLE_MS ? smoothedMps : 0d;
+    }
+
+    static String currentMobKey() {
+        return currentMobKey;
+    }
+
+    private static void countKills(Minecraft client, boolean addKills) {
         long now = System.currentTimeMillis();
         COUNTED_DEAD.removeIf(id -> client.level.getEntity(id) == null);
         Iterator<Map.Entry<Integer, Long>> it = RECENT_HITS.entrySet().iterator();
@@ -284,7 +370,7 @@ final class MobMilestones {
             Map.Entry<Integer, Long> hit = it.next();
             Entity entity = client.level.getEntity(hit.getKey());
             if (entity instanceof LivingEntity living && living.isDeadOrDying()) {
-                countKill(living);
+                countKill(living, addKills);
                 it.remove();
             } else if (entity == null || now - hit.getValue() > KILL_WINDOW_MS) {
                 it.remove();
@@ -297,22 +383,27 @@ final class MobMilestones {
         for (LivingEntity living : client.level.getEntitiesOfClass(LivingEntity.class,
                 client.player.getBoundingBox().inflate(SPLASH_RANGE))) {
             if (!(living instanceof Player) && living.isDeadOrDying() && living.hurtTime > 0) {
-                countKill(living);
+                countKill(living, addKills);
             }
         }
     }
 
-    private static void countKill(LivingEntity living) {
+    private static void countKill(LivingEntity living, boolean addKill) {
         if (!COUNTED_DEAD.add(living.getId())) {
             return;
+        }
+        if (addKill) {
+            SessionProfitHud.onKills(1L);
         }
         String key = matchMob(living);
         if (key == null) {
             return;
         }
-        Entry entry = data().mobs.get(key);
-        entry.slain++;
         currentMobKey = key;
+        if (!addKill) {
+            return;
+        }
+        data().mobs.get(key).slain++;
         if (unsavedSinceMs == 0L) {
             unsavedSinceMs = System.currentTimeMillis();
         }
@@ -514,10 +605,29 @@ final class MobMilestones {
                 if (data.mobs == null) {
                     data.mobs = new LinkedHashMap<>();
                 }
+                if (!data.mobs.isEmpty()) {
+                    addBuiltInMobs(data, Map.of());
+                }
             }
             return loaded;
         } catch (IOException | JsonSyntaxException ignored) {
             return new Store();
+        }
+    }
+
+    // the Infernal Citadel mobs aren't in /milestones yet, so track them from 0 and keep their counts across scans
+    private static void addBuiltInMobs(Data data, Map<String, Entry> previous) {
+        for (String mob : FarmMobScanner.builtInMobs()) {
+            String key = key(mob);
+            if (data.mobs.containsKey(key)) {
+                continue;
+            }
+            Entry entry = previous.get(key);
+            if (entry == null) {
+                entry = new Entry();
+                entry.name = mob;
+            }
+            data.mobs.put(key, entry);
         }
     }
 

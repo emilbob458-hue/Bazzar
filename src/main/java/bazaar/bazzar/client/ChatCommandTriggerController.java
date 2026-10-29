@@ -1,22 +1,31 @@
 package bazaar.bazzar.client;
 
 import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 
 final class ChatCommandTriggerController {
     static final int SLOT_COUNT = 8;
-    private static final long COOLDOWN_MS = 2000L;
+    private static final long COOLDOWN_MS = 5_000L;
+    private static final long SENDER_COOLDOWN_MS = 30_000L;
+    private static final long FIRE_WINDOW_MS = 30_000L;
+    private static final int MAX_FIRES_PER_WINDOW = 3;
+    private static final int MAX_QUEUED = 4;
     private static final int SEND_SPACING_TICKS = 10;
 
     private static final String[] commandsToSend = new String[SLOT_COUNT];
     private static final String[] triggerMessages = new String[SLOT_COUNT];
     private static final long[] slotLastSentMs = new long[SLOT_COUNT];
     private static final ArrayDeque<String> sendQueue = new ArrayDeque<>();
+    // spam guard: someone repeating the trigger must not make us spam commands and get kicked
+    private static final ArrayDeque<Long> recentFires = new ArrayDeque<>();
+    private static final Map<String, Long> senderLastFiredMs = new HashMap<>();
     private static int ticksUntilNextSend = 0;
 
     private ChatCommandTriggerController() {
@@ -79,6 +88,12 @@ final class ChatCommandTriggerController {
         String lower = (bodyStart >= 0 ? line.substring(bodyStart + 1) : line).toLowerCase(Locale.ROOT);
         long now = System.currentTimeMillis();
         String normalizedSender = normalizePlayerName(senderName);
+        String spamKey = !normalizedSender.isEmpty() ? normalizedSender
+                : normalizePlayerName(bodyStart >= 0 ? line.substring(0, bodyStart) : "");
+        while (!recentFires.isEmpty() && now - recentFires.peekFirst() > FIRE_WINDOW_MS) {
+            recentFires.pollFirst();
+        }
+        senderLastFiredMs.values().removeIf(firedMs -> now - firedMs > SENDER_COOLDOWN_MS);
         List<Boolean> selfOnlyFlags = BazzarConfig.load().chatTriggerSelfOnly;
         Boolean fromSelfOrAltsCache = null;
 
@@ -109,6 +124,11 @@ final class ChatCommandTriggerController {
             if (!lower.contains(lowerTrigger)) {
                 continue;
             }
+            String senderSlotKey = i + ":" + spamKey;
+            if (senderLastFiredMs.containsKey(senderSlotKey)
+                    || recentFires.size() >= MAX_FIRES_PER_WINDOW || sendQueue.size() >= MAX_QUEUED) {
+                continue;
+            }
             boolean queued = false;
             for (String part : cmd.split(";")) {
                 String trimmed = part.trim();
@@ -123,6 +143,8 @@ final class ChatCommandTriggerController {
             }
             if (queued) {
                 slotLastSentMs[i] = now;
+                senderLastFiredMs.put(senderSlotKey, now);
+                recentFires.addLast(now);
             }
         }
     }
