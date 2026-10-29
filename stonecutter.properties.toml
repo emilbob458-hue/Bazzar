@@ -1,5 +1,5 @@
 mod.id = "bazzar"
-mod.version = "1.21"
+mod.version = "1.22"
 mod.group = "bazaar"
 
 deps.fabric_loader = "0.18.4"
