@@ -87,6 +87,10 @@ final class PlayerStats {
         EXECUTOR.scheduleAtFixedRate(PlayerStats::reportQuietly, 60L, REPORT_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
+    static boolean isAfk() {
+        return afk;
+    }
+
     static void tick(Minecraft client) {
         if (client.player == null || client.level == null) {
             onServer = false;

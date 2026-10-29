@@ -33,7 +33,9 @@ final class ShardPayoutController {
                         .withStyle(state.shardPayoutEnabled ? ChatFormatting.GREEN : ChatFormatting.RED))
                 .append(Component.literal("  price/shard: ").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(priceText).withStyle(ChatFormatting.GOLD))
-                .append(Component.literal("  (/setshardprice <price>, /setshardprice on|off)").withStyle(ChatFormatting.DARK_GRAY)));
+                .append(Component.literal("  pays above: ").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal(SbText.formatCompact(state.shardPayoutMin)).withStyle(ChatFormatting.GOLD))
+                .append(Component.literal("  (/setshardprice <price>, on|off, min <amount>)").withStyle(ChatFormatting.DARK_GRAY)));
         return 1;
     }
 
@@ -48,7 +50,7 @@ final class ShardPayoutController {
         BazzarConfig.save(state);
         context.getSource().sendFeedback(prefix()
                 .append(Component.literal(enable
-                        ? "Shard auto pay ON, paying " + SbText.formatCompact(state.shardPrice) + " per shard received." + PayoutQueue.minimumNote("shards")
+                        ? "Shard auto pay ON, paying " + SbText.formatCompact(state.shardPrice) + " per shard received." + PayoutQueue.minimumNote("shard", "shards")
                         : "Shard auto pay OFF.")
                         .withStyle(enable ? ChatFormatting.GREEN : ChatFormatting.YELLOW)));
         return 1;

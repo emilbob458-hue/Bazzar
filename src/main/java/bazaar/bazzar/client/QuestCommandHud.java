@@ -68,17 +68,22 @@ final class QuestCommandHud {
             for (int i = 0; i < drawRows; i++) {
                 GuildQuestScanner.QuestEntry entry = entries.get(i);
                 int rowY = HEADER_HEIGHT + (i * ROW_HEIGHT);
-                String leftValue = entry.leftValue();
+                String leftValue = GuildQuestScanner.liveLeftValue(entry);
                 String rightValue = entry.rightValue();
                 int valueColor;
                 if ("N/A".equals(leftValue) || "N/A".equals(rightValue)) {
                     valueColor = VALUE_MISSING_COLOR;
-                } else if (leftValue.equalsIgnoreCase(rightValue)) {
+                } else if (GuildQuestScanner.liveDone(entry)) {
                     valueColor = VALUE_DONE_COLOR;
                 } else {
                     valueColor = theme.light();
                 }
                 String value = leftValue + " / " + rightValue;
+                // the quest you're farming right now also shows how long it has left at this rate
+                long eta = GuildQuestScanner.isLive(entry) ? GuildQuestScanner.liveEtaSeconds(entry) : -1L;
+                if (eta >= 0L) {
+                    value += " · " + formatEta(eta);
+                }
                 int valueX = BASE_WIDTH - 2 - client.font.width(value);
                 graphics.drawString(client.font, value, valueX, rowY, valueColor, true);
 
@@ -115,6 +120,17 @@ final class QuestCommandHud {
         graphics.pose().scale(textScale, textScale);
         graphics.drawString(client.font, text, 0, 0, color, true);
         graphics.pose().popMatrix();
+    }
+
+    // short, so the quest name keeps its room
+    private static String formatEta(long totalSeconds) {
+        if (totalSeconds < 60L) {
+            return totalSeconds + "s";
+        }
+        if (totalSeconds < 3600L) {
+            return (totalSeconds / 60L) + "m";
+        }
+        return (totalSeconds / 3600L) + "h " + (totalSeconds % 3600L / 60L) + "m";
     }
 
     private static String formatSeconds(int totalSeconds) {

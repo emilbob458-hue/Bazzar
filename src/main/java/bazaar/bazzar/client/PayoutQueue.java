@@ -1,6 +1,10 @@
 package bazaar.bazzar.client;
 
 import java.util.ArrayDeque;
+
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -14,7 +18,6 @@ final class PayoutQueue {
     private static final long SEND_GAP_MS = 3_000L;
     private static final long REPLY_TIMEOUT_MS = 6_000L;
     private static final int MAX_SLOW_DOWN_RETRIES = 5;
-    static final double MIN_RECEIVED = 5.0d;
     private static final Pattern SENT_PATTERN =
             Pattern.compile("(?i)^\\s*you\\s+sent\\s+.*?tokens?\\s+to\\s+(\\w{1,16})");
 
@@ -25,12 +28,44 @@ final class PayoutQueue {
     private PayoutQueue() {
     }
 
-    static String minimumNote(String units) {
-        return " Only pays when more than " + SbText.formatCompact(MIN_RECEIVED) + " " + units + " arrive at once.";
+    // payments at or below this are ignored, set per currency with /setshardprice min <amount> etc.
+    static double minimum(String kind) {
+        BazzarConfig.State state = BazzarConfig.load();
+        return switch (kind) {
+            case "gem" -> state.gemPayoutMin;
+            case "cobble" -> state.cobblePayoutMin;
+            default -> state.shardPayoutMin;
+        };
+    }
+
+    static String minimumNote(String kind, String units) {
+        double min = minimum(kind);
+        return min <= 0d ? " Pays for any amount." : " Only pays when more than " + SbText.formatCompact(min) + " " + units + " arrive at once.";
+    }
+
+    static int runSetMinimum(CommandContext<FabricClientCommandSource> context, String kind, String units) {
+        Double amount = ShardPayoutController.parseCompactNumber(StringArgumentType.getString(context, "amount"));
+        if (amount == null || amount < 0d) {
+            context.getSource().sendFeedback(prefix().append(Component.literal("Use a number, e.g. min 5, or min 0 to pay for any amount.")
+                    .withStyle(ChatFormatting.RED)));
+            return 0;
+        }
+        BazzarConfig.State state = BazzarConfig.load();
+        switch (kind) {
+            case "gem" -> state.gemPayoutMin = amount;
+            case "cobble" -> state.cobblePayoutMin = amount;
+            default -> state.shardPayoutMin = amount;
+        }
+        BazzarConfig.save(state);
+        context.getSource().sendFeedback(prefix().append(Component.literal(
+                amount <= 0d ? "Auto pay now pays for any amount of " + units + "."
+                        : "Auto pay now only pays when more than " + SbText.formatCompact(amount) + " " + units + " arrive at once.")
+                .withStyle(ChatFormatting.GREEN)));
+        return 1;
     }
 
     static void enqueue(Minecraft client, String kind, String sender, double received, double total, String amountText) {
-        if (received <= MIN_RECEIVED) {
+        if (received <= minimum(kind)) {
             return;
         }
         PayoutLog.Entry entry = PayoutLog.addQueued(kind, sender, received, total);

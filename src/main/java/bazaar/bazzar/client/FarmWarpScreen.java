@@ -143,7 +143,7 @@ final class FarmWarpScreen extends Screen {
         Set<String> seen = new HashSet<>();
         for (GuildQuestScanner.QuestEntry quest : GuildQuestScanner.getOpenEntries()) {
             String text = SbText.normalizeText(quest.name());
-            double progress = amount(quest.leftValue());
+            double progress = amount(GuildQuestScanner.liveLeftValue(quest));
             double required = amount(quest.rightValue());
             if (required < 0d) {
                 required = SbText.firstAmount(text);

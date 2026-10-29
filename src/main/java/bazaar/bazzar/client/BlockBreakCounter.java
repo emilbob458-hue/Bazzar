@@ -15,10 +15,10 @@ public final class BlockBreakCounter {
     private BlockBreakCounter() {
     }
 
-    static void onOwnBreak(BlockPos pos) {
+    static void onOwnBreak(BlockPos pos, BlockState state) {
         lastOwnBreak = pos.immutable();
         lastOwnBreakMs = System.currentTimeMillis();
-        count();
+        count(state);
     }
 
     public static void onServerBlockChange(BlockPos pos, BlockState before, BlockState after) {
@@ -29,7 +29,7 @@ public final class BlockBreakCounter {
             return;
         }
         if (after.isAir() || wasHarvested(before, after)) {
-            count();
+            count(before);
         }
     }
 
@@ -45,8 +45,9 @@ public final class BlockBreakCounter {
         return false;
     }
 
-    private static void count() {
+    private static void count(BlockState state) {
         SessionProfitHud.onBlockBroken();
         PlayerStats.onBlockBroken();
+        GuildQuestScanner.onBlockBroken(state.getBlock().getName().getString());
     }
 }

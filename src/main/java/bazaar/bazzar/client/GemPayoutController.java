@@ -32,7 +32,9 @@ final class GemPayoutController {
                         .withStyle(state.gemPayoutEnabled ? ChatFormatting.GREEN : ChatFormatting.RED))
                 .append(Component.literal("  price/gem: ").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(priceText).withStyle(ChatFormatting.GOLD))
-                .append(Component.literal("  (/setgemprice <price>, /setgemprice on|off)").withStyle(ChatFormatting.DARK_GRAY)));
+                .append(Component.literal("  pays above: ").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal(SbText.formatCompact(state.gemPayoutMin)).withStyle(ChatFormatting.GOLD))
+                .append(Component.literal("  (/setgemprice <price>, on|off, min <amount>)").withStyle(ChatFormatting.DARK_GRAY)));
         return 1;
     }
 
@@ -47,7 +49,7 @@ final class GemPayoutController {
         BazzarConfig.save(state);
         context.getSource().sendFeedback(prefix()
                 .append(Component.literal(enable
-                        ? "Gem auto pay ON, paying " + SbText.formatCompact(state.gemPrice) + " per gem received." + PayoutQueue.minimumNote("gems")
+                        ? "Gem auto pay ON, paying " + SbText.formatCompact(state.gemPrice) + " per gem received." + PayoutQueue.minimumNote("gem", "gems")
                         : "Gem auto pay OFF.")
                         .withStyle(enable ? ChatFormatting.GREEN : ChatFormatting.YELLOW)));
         return 1;

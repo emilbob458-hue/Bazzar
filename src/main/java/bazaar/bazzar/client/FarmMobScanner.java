@@ -176,6 +176,21 @@ final class FarmMobScanner {
         return null;
     }
 
+    static String cropForMob(String mob) {
+        String wanted = key(mob);
+        if (wanted.isEmpty()) {
+            return null;
+        }
+        for (Map<String, MobInfo> farms : List.of(data().farms, BUILT_IN)) {
+            for (MobInfo info : farms.values()) {
+                if (wanted.equals(key(info.mob))) {
+                    return info.crop;
+                }
+            }
+        }
+        return null;
+    }
+
     static MobInfo get(String cropName) {
         String wanted = key(cropName);
         Map<String, MobInfo> farms = data().farms;

@@ -12,6 +12,7 @@ import java.time.LocalTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -109,6 +110,9 @@ public final class CookieController {
     private static String lastUsedLabel = "";
     private static String lastCookieCommand = null;
     private static String chatActiveCookie = null;
+    private static String currentFarm = null;
+    private static final Pattern FARM_COMMAND_PATTERN = Pattern.compile("^farms?\\s+([a-z0-9 ]+)$");
+    private static final Pattern RUSH_CROP_PATTERN = Pattern.compile("\\[\\+[\\d.,]+[a-zA-Z]{0,2}\\s+([^\\]]+)\\]");
 
     private static long lastActivityMs = 0L;
     private static float lastActivityYaw;
@@ -298,6 +302,11 @@ public final class CookieController {
             lastRushTriggerMs = now;
             return;
         }
+        if (currentFarm != null && BazaarFlipScanner.isBlacklisted(currentFarm, "minecraft:" + currentFarm.replace(' ', '_'))) {
+            logRush("  -> skipped, " + currentFarm + " is blacklisted");
+            lastRushTriggerMs = now;
+            return;
+        }
         String cookieType = normalizeCookieType(state.cookieRushType);
         if (cookieType == null) {
             cookieType = COOKIE_SUSPICIOUS;
@@ -410,6 +419,13 @@ public final class CookieController {
         if (trimmed.equals("afk") || trimmed.startsWith("afk ")) {
             inAfkBubble = true;
         }
+        // /farm carrot or /farms carrot: remember the farm so a blacklisted crop doesn't get the rush cookie
+        Matcher farm = FARM_COMMAND_PATTERN.matcher(trimmed);
+        if (farm.find()) {
+            currentFarm = farm.group(1);
+        } else if (trimmed.startsWith("warp ") || trimmed.startsWith("warps ")) {
+            currentFarm = null;
+        }
     }
 
     private static void trackAfkBubble(String message) {
@@ -446,6 +462,11 @@ public final class CookieController {
             if (CHAIN_DONE_PATTERN.matcher(SbText.stripFormattingCodes(message)).find()) {
                 lastRushChainEndMs = System.currentTimeMillis();
                 lastRushTriggerMs = 0L;
+                // "⚡ RUSH chain (4.8s) • 2,733x [+82.73B Brown Paint]" says which farm you're on
+                Matcher crop = RUSH_CROP_PATTERN.matcher(SbText.stripFormattingCodes(message));
+                if (crop.find()) {
+                    currentFarm = crop.group(1).trim().toLowerCase(Locale.ROOT);
+                }
                 logRush("chat: " + message + (rushCookiePending ? " -> switching back" : ""));
                 if (rushCookiePending) {
                     endRushCookie(client);

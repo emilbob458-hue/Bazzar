@@ -1,6 +1,5 @@
 package bazaar.bazzar.client;
 
-import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Locale;
 
@@ -19,7 +18,6 @@ final class SessionProfitHud {
     private static final long MIN_RATE_ELAPSED_MS = 60_000L;
     private static final double SUSPICIOUS_JUMP_FLOOR = 1_000_000d;
     private static final int BASELINE_CONFIRM_SAMPLES = 5;
-    private static final long BPS_WINDOW_MS = 2_000L;
     private static final int PANEL_BG = 0xDB0C0E12;
     private static final int PANEL_EDGE = 0x14FFFFFF;
     private static final int DIVIDER = 0xFF2A3039;
@@ -48,7 +46,6 @@ final class SessionProfitHud {
     private static long blocksBroken = 0L;
     private static long kills = 0L;
     private static ClientLevel trackedLevel = null;
-    private static final ArrayDeque<Long> recentBreaks = new ArrayDeque<>();
 
     private SessionProfitHud() {
     }
@@ -117,15 +114,12 @@ final class SessionProfitHud {
         earnedShards = 0d;
         blocksBroken = 0L;
         kills = 0L;
-        recentBreaks.clear();
     }
 
     static void onBlockBroken() {
         blocksBroken++;
-        long now = System.currentTimeMillis();
-        recentBreaks.addLast(now);
         if (sessionStartMs == 0L) {
-            sessionStartMs = now;
+            sessionStartMs = System.currentTimeMillis();
         }
     }
 
@@ -134,17 +128,6 @@ final class SessionProfitHud {
         if (sessionStartMs == 0L) {
             sessionStartMs = System.currentTimeMillis();
         }
-    }
-
-    private static String bpsLabel(long now) {
-        while (!recentBreaks.isEmpty() && now - recentBreaks.peekFirst() > BPS_WINDOW_MS) {
-            recentBreaks.pollFirst();
-        }
-        if (recentBreaks.isEmpty()) {
-            return "";
-        }
-        double bps = recentBreaks.size() / (BPS_WINDOW_MS / 1000d);
-        return (bps >= 10d ? String.valueOf(Math.round(bps)) : String.format(Locale.ROOT, "%.1f", bps)) + " BPS";
     }
 
     static void tick(Minecraft client) {
@@ -224,7 +207,6 @@ final class SessionProfitHud {
                 ? SbText.formatCompact(earnedShards / (elapsed / 3_600_000d)) + "/h"
                 : "";
         String blocksText = "+" + SbText.formatCompact(blocksBroken) + " blocks";
-        String bpsText = bpsLabel(now);
         String timeText = formatElapsed(elapsed);
 
         int chipW = font.width(CHIP_LABEL) + 12;
@@ -232,16 +214,11 @@ final class SessionProfitHud {
         int rateX = shardsX + font.width(shardsText) + 4;
         int firstDividerX = rateText.isEmpty() ? rateX + 2 : rateX + font.width(rateText) + 6;
         int blocksX = firstDividerX + 7;
-        int bpsX = blocksX + font.width(blocksText) + 4;
-        int killsDividerX = bpsText.isEmpty() ? bpsX + 2 : bpsX + font.width(bpsText) + 6;
+        int killsDividerX = blocksX + font.width(blocksText) + 6;
         // kills only show up once you've killed something, so a mining session looks the same as before
         String killsText = kills > 0L ? "+" + SbText.formatCompact(kills) + " kills" : "";
-        double mps = MobMilestones.currentMobMps();
-        String mpsText = kills > 0L && mps > 0d ? String.format(Locale.ROOT, mps >= 10d ? "%.0f MPS" : "%.1f MPS", mps) : "";
         int killsX = killsDividerX + 7;
-        int mpsX = killsX + font.width(killsText) + 4;
-        int secondDividerX = killsText.isEmpty() ? killsDividerX
-                : mpsText.isEmpty() ? mpsX + 2 : mpsX + font.width(mpsText) + 6;
+        int secondDividerX = killsText.isEmpty() ? killsDividerX : killsX + font.width(killsText) + 6;
         int timeX = secondDividerX + 7;
         resetX = timeX + font.width(timeText) + 8;
         barWidth = resetX + font.width(RESET_LABEL) + 8;
@@ -266,15 +243,9 @@ final class SessionProfitHud {
         }
         graphics.fill(firstDividerX, 4, firstDividerX + 1, BAR_HEIGHT - 4, DIVIDER);
         graphics.drawString(font, blocksText, blocksX, 5, VALUE_TEXT, false);
-        if (!bpsText.isEmpty()) {
-            graphics.drawString(font, bpsText, bpsX, 5, theme.light(), false);
-        }
         if (!killsText.isEmpty()) {
             graphics.fill(killsDividerX, 4, killsDividerX + 1, BAR_HEIGHT - 4, DIVIDER);
             graphics.drawString(font, killsText, killsX, 5, VALUE_TEXT, false);
-            if (!mpsText.isEmpty()) {
-                graphics.drawString(font, mpsText, mpsX, 5, theme.light(), false);
-            }
         }
         graphics.fill(secondDividerX, 4, secondDividerX + 1, BAR_HEIGHT - 4, DIVIDER);
         graphics.drawString(font, timeText, timeX, 5, MUTED_TEXT, false);

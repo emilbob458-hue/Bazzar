@@ -38,6 +38,8 @@ final class GuildQuestScanner {
     private static final Pattern DURATION_PATTERN = Pattern.compile("(\\d+)\\s*([hms])", Pattern.CASE_INSENSITIVE);
     private static final List<QuestEntry> lastEntries = new ArrayList<>();
     private static long questsRefreshAtMs = 0L;
+    private static final java.util.Set<String> completedNames = new java.util.HashSet<>();
+    private static final QuestLiveTracker LIVE = new QuestLiveTracker();
 
     private static State state = State.IDLE;
     private static int waitTicks = 0;
@@ -57,6 +59,10 @@ final class GuildQuestScanner {
 
     static void triggerAuto(Minecraft client) {
         if (!autoScanEnabled) {
+            return;
+        }
+        // with a guild set, an AFK member scans for everyone; only fall back if nobody has for a while
+        if (GuildShare.isActive() && !GuildShare.fallbackDue()) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -145,6 +151,7 @@ final class GuildQuestScanner {
     }
 
     static void tick(Minecraft client) {
+        LIVE.tick(System.currentTimeMillis());
         if (state == State.IDLE || client.player == null) {
             return;
         }
@@ -175,6 +182,7 @@ final class GuildQuestScanner {
             }
             case SCAN -> {
                 cacheEntries(collectQuestEntries(client));
+                GuildShare.onScanned(lastEntries, questsRefreshAtMs);
                 state = State.CLOSE;
             }
             case CLOSE -> {
@@ -193,6 +201,50 @@ final class GuildQuestScanner {
 
     static List<QuestEntry> getLastEntries() {
         return lastEntries;
+    }
+
+    // "GUILDS • Guild quest complete: Kill 1,000 Bats" marks that quest done without reopening /gq
+    static void onChatLine(String line) {
+        if (line == null) {
+            return;
+        }
+        String text = SbText.stripFormattingCodes(line);
+        int idx = text.toLowerCase(Locale.ROOT).indexOf("guild quest complete:");
+        if (idx < 0) {
+            return;
+        }
+        String finished = normalize(text.substring(idx + "guild quest complete:".length()));
+        if (finished.isEmpty()) {
+            return;
+        }
+        completedNames.add(finished);
+        for (int i = 0; i < lastEntries.size(); i++) {
+            QuestEntry entry = lastEntries.get(i);
+            if (normalize(entry.name).equals(finished)) {
+                lastEntries.set(i, new QuestEntry(entry.name, entry.rightValue, entry.rightValue, true));
+                return;
+            }
+        }
+    }
+
+    static boolean isScanning() {
+        return state != State.IDLE;
+    }
+
+    // quests shared by a guild member's scan; quests that finished since then stay done
+    static void applyShared(List<String[]> quests, long refreshAtMs) {
+        lastEntries.clear();
+        for (String[] quest : quests) {
+            boolean done = completedNames.contains(normalize(quest[0]));
+            lastEntries.add(new QuestEntry(quest[0], done ? quest[2] : quest[1], quest[2], done));
+        }
+        restartLive();
+        if (refreshAtMs > 0L) {
+            if (refreshAtMs != questsRefreshAtMs) {
+                completedNames.clear();
+            }
+            questsRefreshAtMs = refreshAtMs;
+        }
     }
 
     static List<QuestEntry> getOpenEntries() {
@@ -412,10 +464,77 @@ final class GuildQuestScanner {
 
     private static void cacheEntries(List<QuestEntry> scanned) {
         lastEntries.clear();
-        if (scanned == null || scanned.isEmpty()) {
-            return;
+        if (scanned != null) {
+            lastEntries.addAll(scanned);
         }
-        lastEntries.addAll(scanned);
+        restartLive();
+    }
+
+    private static void restartLive() {
+        List<String[]> quests = new ArrayList<>();
+        for (QuestEntry entry : lastEntries) {
+            quests.add(new String[]{entry.name, entry.leftValue, entry.rightValue});
+        }
+        LIVE.onScan(quests);
+    }
+
+    // ---- live progress between scans ----
+
+    // the progress to show: the last scan plus what MPS/BPS or counted kills and breaks added since
+    static String liveLeftValue(QuestEntry entry) {
+        double live = entry.done() ? -1d : LIVE.live(entry.name);
+        return live < 0d ? entry.leftValue : QuestLiveTracker.formatLike(entry.leftValue, entry.rightValue, live);
+    }
+
+    static boolean liveDone(QuestEntry entry) {
+        if (entry.done()) {
+            return true;
+        }
+        double required = QuestLiveTracker.amount(entry.rightValue);
+        return required > 0d && LIVE.live(entry.name) >= required;
+    }
+
+    static boolean isLive(QuestEntry entry) {
+        return LIVE.isActive(entry.name, System.currentTimeMillis());
+    }
+
+    static long liveEtaSeconds(QuestEntry entry) {
+        return LIVE.etaSeconds(entry.name, System.currentTimeMillis());
+    }
+
+    static void onActionBar(String line) {
+        long now = System.currentTimeMillis();
+        LIVE.onActionBar(line, now);
+        // "+20 Paper (285k)" names the farm's mob drop, which tells us the mob and the crop of that farm
+        for (String gain : QuestLiveTracker.gains(line)) {
+            String mob = FarmMobScanner.mobForDrop(gain);
+            if (mob != null) {
+                LIVE.onSeen(QuestLiveTracker.Kind.KILL, mob, now);
+                LIVE.onSeen(QuestLiveTracker.Kind.FARM, FarmMobScanner.cropForMob(mob), now);
+            }
+        }
+    }
+
+    static void onMobHit(net.minecraft.world.entity.Entity entity) {
+        LIVE.onSure(QuestLiveTracker.Kind.KILL, mobNames(entity), System.currentTimeMillis());
+    }
+
+    static void onMobKilled(net.minecraft.world.entity.Entity entity) {
+        LIVE.onCounted(QuestLiveTracker.Kind.KILL, 1L, mobNames(entity), System.currentTimeMillis());
+    }
+
+    static void onBlockBroken(String blockName) {
+        LIVE.onCounted(QuestLiveTracker.Kind.FARM, 1L, List.of(blockName), System.currentTimeMillis());
+    }
+
+    private static List<String> mobNames(net.minecraft.world.entity.Entity entity) {
+        List<String> names = new ArrayList<>();
+        names.add(entity.getType().getDescription().getString());
+        if (entity.getCustomName() != null) {
+            names.add(entity.getCustomName().getString());
+        }
+        names.add(entity.getName().getString());
+        return names;
     }
 
     private static void reset() {
@@ -429,11 +548,17 @@ final class GuildQuestScanner {
         private final String name;
         private final String leftValue;
         private final String rightValue;
+        private final boolean completed;
 
         private QuestEntry(String name, String leftValue, String rightValue) {
+            this(name, leftValue, rightValue, false);
+        }
+
+        private QuestEntry(String name, String leftValue, String rightValue, boolean completed) {
             this.name = name;
             this.leftValue = leftValue;
             this.rightValue = rightValue;
+            this.completed = completed;
         }
 
         String name() {
@@ -449,6 +574,9 @@ final class GuildQuestScanner {
         }
 
         boolean done() {
+            if (completed) {
+                return true;
+            }
             if ("N/A".equals(leftValue) || "N/A".equals(rightValue)) {
                 return false;
             }

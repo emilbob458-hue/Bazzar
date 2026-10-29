@@ -164,22 +164,29 @@ final class MobMilestoneHud {
         }
         if (mode == MobMilestones.MODE_CURRENT) {
             MobMilestones.Entry current = MobMilestones.currentMob();
-            if (current != null) {
-                rows.add(current);
-            } else {
+            if (current == null) {
                 emptyText = "Hit a mob to track it";
+            } else if (current.done()) {
+                emptyText = current.name + " is at 25k!";
+            } else {
+                rows.add(current);
             }
         } else if (mode == MobMilestones.MODE_SELECTED) {
+            // finished mobs drop off the list, like completed guild quests
+            boolean picked = false;
             if (state.milestoneSelected != null) {
                 for (String key : state.milestoneSelected) {
                     MobMilestones.Entry entry = MobMilestones.get(key);
                     if (entry != null) {
-                        rows.add(entry);
+                        picked = true;
+                        if (!entry.done()) {
+                            rows.add(entry);
+                        }
                     }
                 }
             }
             if (rows.isEmpty()) {
-                emptyText = "Pick mobs in Bazzar settings";
+                emptyText = picked ? "Your picked mobs are all at 25k!" : "Pick mobs in Bazzar settings";
             }
         } else {
             for (MobMilestones.Entry entry : all) {

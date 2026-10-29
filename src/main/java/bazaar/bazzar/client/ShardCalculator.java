@@ -52,6 +52,8 @@ final class ShardCalculator {
                     .executes(ShardPayoutController::runStatus)
                     .then(literal("on").executes(ctx -> ShardPayoutController.runToggle(ctx, true)))
                     .then(literal("off").executes(ctx -> ShardPayoutController.runToggle(ctx, false)))
+                    .then(literal("min").then(argument("amount", StringArgumentType.greedyString())
+                            .executes(ctx -> PayoutQueue.runSetMinimum(ctx, "shard", "shards"))))
                     .then(argument("price", StringArgumentType.greedyString())
                             .executes(ShardCalculator::runSetShardPrice)));
             dispatcher.register(literal("setmulti")
@@ -69,6 +71,8 @@ final class ShardCalculator {
                     .executes(GemPayoutController::runStatus)
                     .then(literal("on").executes(ctx -> GemPayoutController.runToggle(ctx, true)))
                     .then(literal("off").executes(ctx -> GemPayoutController.runToggle(ctx, false)))
+                    .then(literal("min").then(argument("amount", StringArgumentType.greedyString())
+                            .executes(ctx -> PayoutQueue.runSetMinimum(ctx, "gem", "gems"))))
                     .then(argument("price", StringArgumentType.greedyString())
                             .executes(ShardCalculator::runSetGemPrice)));
 

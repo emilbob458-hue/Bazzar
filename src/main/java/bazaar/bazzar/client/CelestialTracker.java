@@ -1,10 +1,15 @@
 package bazaar.bazzar.client;
 
+import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,14 +32,11 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.sounds.SoundEvents;
 
 final class CelestialTracker {
     static final long COOLDOWN_MS = 4L * 60L * 60L * 1000L;
 
-    private static final String REQUEST_WORD = "requestcelestial";
     private static final String ACCEPT_TEXT = "accept celestial";
-    private static final long PROMPT_GAP_MS = 60_000L;
     private static final long FORGET_MS = 14L * 24L * 60L * 60L * 1000L;
     // "Runterzz just activated the 2x Celestial Booster!" or "... just added a minute to the 2x Celestial Booster!"
     private static final Pattern USED_PATTERN = Pattern.compile(
@@ -46,6 +48,8 @@ final class CelestialTracker {
         String name;
         long lastUsedMs;
         long lastSeenMs;
+        // runs Bazzar, per the last shared sync; only these are shown
+        boolean mod;
     }
 
     private static final class Store {
@@ -53,7 +57,15 @@ final class CelestialTracker {
     }
 
     private static Store store;
-    private static long lastPromptMs = 0L;
+    // uses and celestial chatters this game saw, sent to the Bazzar server in small batches
+    private static final Set<String> pendingUsed = new HashSet<>();
+    private static final Set<String> pendingSeen = new HashSet<>();
+    private static final Map<String, Long> reportedSeenMs = new HashMap<>();
+    private static final long REPORT_MS = 5_000L;
+    private static final long SEEN_REPORT_GAP_MS = 10L * 60_000L;
+    private static final long SYNC_MS = 5L * 60_000L;
+    private static long nextReportMs = 0L;
+    private static long nextSyncMs = 0L;
 
     private CelestialTracker() {
     }
@@ -67,36 +79,121 @@ final class CelestialTracker {
                         if (client.player == null || client.player.connection == null) {
                             return 0;
                         }
-                        client.player.connection.sendChat(REQUEST_WORD);
+                        CelestialMarket.request(client);
                         showList(client);
                         return 1;
                     }));
             dispatcher.register(literal("acceptcelestial")
                     .requires(source -> !BazzarGuard.isBlocked())
-                    .executes(context -> accept(context.getSource().getClient()) ? 1 : 0));
+                    .executes(context -> CelestialMarket.accept(context.getSource().getClient(), -1) ? 1 : 0)
+                    .then(argument("request", IntegerArgumentType.integer(0))
+                            .executes(context -> CelestialMarket.accept(context.getSource().getClient(),
+                                    IntegerArgumentType.getInteger(context, "request")) ? 1 : 0)));
             dispatcher.register(literal("celestials")
                     .requires(source -> !BazzarGuard.isBlocked())
                     .executes(context -> {
-                        showList(context.getSource().getClient());
+                        // the Boosts tab pulls what everyone's mods have seen, so all players get the same timers
+                        CelestialMarket.openScreen(CelestialPanel.View.BOOSTS);
                         return 1;
                     }));
         });
     }
 
-    // typing "accept celestial" in chat uses your booster instead of sending the message
+    static void tick(Minecraft client) {
+        long now = System.currentTimeMillis();
+        if (client.player == null || client.getCurrentServer() == null) {
+            return;
+        }
+        if (now >= nextReportMs && (!pendingUsed.isEmpty() || !pendingSeen.isEmpty())) {
+            nextReportMs = now + REPORT_MS;
+            JsonObject body = CelestialMarket.baseBody(client.player.getName().getString());
+            body.add("used", toArray(pendingUsed));
+            body.add("seen", toArray(pendingSeen));
+            pendingUsed.clear();
+            pendingSeen.clear();
+            CelestialMarket.post("/cb/seen", body, (code, json) -> {
+            });
+        }
+        if (now >= nextSyncMs) {
+            sync(null);
+        }
+    }
+
+    // merges the shared list in; the newest use of each player wins
+    static void sync(Runnable after) {
+        nextSyncMs = System.currentTimeMillis() + SYNC_MS;
+        CelestialMarket.get("/cb/celestials", (code, json) -> {
+            if (code == 200 && json != null && json.has("players")) {
+                long offset = System.currentTimeMillis() - json.get("now").getAsLong();
+                boolean changed = false;
+                Set<String> modUsers = new HashSet<>();
+                for (JsonElement element : json.getAsJsonArray("players")) {
+                    JsonObject shared = element.getAsJsonObject();
+                    if (shared.has("mod") && shared.get("mod").getAsBoolean()) {
+                        modUsers.add(key(shared.get("name").getAsString()));
+                    }
+                }
+                for (Player player : store().players.values()) {
+                    boolean mod = modUsers.contains(key(player.name));
+                    if (player.mod != mod) {
+                        player.mod = mod;
+                        changed = true;
+                    }
+                }
+                for (JsonElement element : json.getAsJsonArray("players")) {
+                    JsonObject shared = element.getAsJsonObject();
+                    Player player = player(shared.get("name").getAsString());
+                    if (modUsers.contains(key(player.name)) && !player.mod) {
+                        player.mod = true;
+                        changed = true;
+                    }
+                    long used = shared.get("lastUsed").getAsLong();
+                    long seen = shared.get("lastSeen").getAsLong();
+                    if (used > 0L && used + offset > player.lastUsedMs) {
+                        player.lastUsedMs = used + offset;
+                        changed = true;
+                    }
+                    if (seen > 0L && seen + offset > player.lastSeenMs) {
+                        player.lastSeenMs = seen + offset;
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    save();
+                }
+            }
+            if (after != null) {
+                after.run();
+            }
+        });
+    }
+
+    private static JsonArray toArray(Set<String> names) {
+        JsonArray array = new JsonArray();
+        for (String name : names) {
+            array.add(name);
+        }
+        return array;
+    }
+
+    // typing "accept celestial" in chat accepts the last pool request instead of sending the message
     static boolean onOwnChat(String message) {
         if (message == null || !message.trim().equalsIgnoreCase(ACCEPT_TEXT)) {
             return false;
         }
-        return accept(Minecraft.getInstance());
+        return CelestialMarket.accept(Minecraft.getInstance(), CelestialMarket.lastPromptedRequest());
     }
 
-    private static boolean accept(Minecraft client) {
-        if (client.player == null || client.player.connection == null) {
-            return false;
+    // when this player's boost is off cooldown, from the broadcasts and your own cooldown message
+    static long readyAt(String name) {
+        long readyAt = 0L;
+        Player player = store().players.get(key(name));
+        if (player != null && player.lastUsedMs > 0L) {
+            readyAt = player.lastUsedMs + COOLDOWN_MS;
         }
-        CommandSender.send(client, "celestialbooster");
-        return true;
+        Map<String, Long> own = BazzarConfig.load().celestialBoosterReadyAt;
+        Long reminder = own == null ? null : own.get(ShardPayController.normalizeName(name));
+        return reminder != null ? Math.max(readyAt, reminder) : readyAt;
     }
 
     static void onChatLine(Minecraft client, String line) {
@@ -110,6 +207,7 @@ final class CelestialTracker {
             player.lastUsedMs = System.currentTimeMillis();
             player.lastSeenMs = player.lastUsedMs;
             save();
+            pendingUsed.add(player.name);
             return;
         }
         int bodyStart = text.indexOf('»');
@@ -123,6 +221,11 @@ final class CelestialTracker {
             return;
         }
         if (prefix.toLowerCase(Locale.ROOT).contains("celestial")) {
+            long now = System.currentTimeMillis();
+            if (now - reportedSeenMs.getOrDefault(key(sender), 0L) >= SEEN_REPORT_GAP_MS) {
+                reportedSeenMs.put(key(sender), now);
+                pendingSeen.add(sender);
+            }
             Player player = store().players.get(key(sender));
             if (player == null) {
                 player(sender).lastSeenMs = System.currentTimeMillis();
@@ -131,89 +234,96 @@ final class CelestialTracker {
                 player.lastSeenMs = System.currentTimeMillis();
             }
         }
-        if (body.contains(REQUEST_WORD)) {
-            onRequest(client, sender);
+    }
+
+    record Entry(String name, boolean online, long readyAtMs) {
+        boolean ready(long now) {
+            return readyAtMs <= now;
         }
     }
 
-    private static void onRequest(Minecraft client, String requester) {
-        String self = client.player.getName().getString();
-        if (requester.equalsIgnoreCase(self)) {
-            return;
-        }
-        Player me = store().players.get(key(self));
+    // everyone running Bazzar, ready ones first by name, then cooldowns by who's up soonest
+    static List<Entry> entries(Minecraft client) {
         long now = System.currentTimeMillis();
-        // only celestials whose own boost is up get asked, and at most once a minute so a spammer can't flood you
-        if (me == null || !isReady(me, now) || now - lastPromptMs < PROMPT_GAP_MS) {
-            return;
+        Set<String> online = onlineNames(client);
+        store().players.values().removeIf(player -> now - Math.max(player.lastSeenMs, player.lastUsedMs) > FORGET_MS);
+        List<Entry> entries = new ArrayList<>();
+        for (Player player : store().players.values()) {
+            if (!player.mod) {
+                continue;
+            }
+            long readyAt = player.lastUsedMs <= 0L ? 0L : player.lastUsedMs + COOLDOWN_MS;
+            entries.add(new Entry(player.name, online.contains(key(player.name)), readyAt));
         }
-        lastPromptMs = now;
-        MutableComponent accept = Component.literal("[Accept]").withStyle(style -> style
-                .withColor(ChatFormatting.GREEN)
-                .withBold(true)
-                .withClickEvent(new ClickEvent.RunCommand("/acceptcelestial"))
-                .withHoverEvent(new HoverEvent.ShowText(Component.literal("Runs /celestialbooster"))));
-        McCompat.chat(client.player, BazaarChat.prefix()
-                .append(Component.literal(requester + " is asking for a Celestial Boost. ").withStyle(ChatFormatting.AQUA))
-                .append(accept)
-                .append(Component.literal(" or type \"accept celestial\"").withStyle(ChatFormatting.GRAY)));
-        client.player.playSound(SoundEvents.NOTE_BLOCK_PLING.value(), 0.8f, 1.4f);
+        entries.sort(Comparator.comparing((Entry entry) -> !entry.ready(now))
+                .thenComparingLong(entry -> entry.ready(now) ? 0L : entry.readyAtMs())
+                .thenComparing(Entry::name, String.CASE_INSENSITIVE_ORDER));
+        return entries;
     }
 
+    private static final int CHAT_NEXT_UP = 6;
+
+    // a short chat summary; the full list lives in the Boosts tab of /cbshop
     static void showList(Minecraft client) {
         if (client.player == null) {
             return;
         }
         long now = System.currentTimeMillis();
-        Set<String> online = onlineNames(client);
-        store().players.values().removeIf(player -> now - Math.max(player.lastSeenMs, player.lastUsedMs) > FORGET_MS);
-
-        List<String> readyOnline = new ArrayList<>();
+        List<Entry> entries = entries(client);
+        List<Entry> readyOnline = new ArrayList<>();
+        List<Entry> cooling = new ArrayList<>();
         int readyOffline = 0;
-        List<Player> cooling = new ArrayList<>();
-        for (Player player : store().players.values()) {
-            if (!isReady(player, now)) {
-                cooling.add(player);
-            } else if (online.contains(key(player.name))) {
-                readyOnline.add(player.name);
+        for (Entry entry : entries) {
+            if (!entry.ready(now)) {
+                cooling.add(entry);
+            } else if (entry.online()) {
+                readyOnline.add(entry);
             } else {
                 readyOffline++;
             }
         }
-        readyOnline.sort(String.CASE_INSENSITIVE_ORDER);
-        cooling.sort(Comparator.comparingLong(player -> player.lastUsedMs));
 
-        McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal("Celestial boosts (4h cooldown)")
+        McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal("Celestial boosts")
                 .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)));
-        McCompat.chat(client.player, Component.literal(" Ready & online: ").withStyle(ChatFormatting.GRAY)
-                .append(Component.literal(readyOnline.isEmpty() ? "nobody yet" : String.join(", ", readyOnline))
-                        .withStyle(ChatFormatting.GREEN))
-                .append(Component.literal(readyOffline > 0 ? "  (+" + readyOffline + " offline)" : "")
-                        .withStyle(ChatFormatting.DARK_GRAY)));
-        if (!cooling.isEmpty()) {
-            MutableComponent line = Component.literal(" On cooldown: ").withStyle(ChatFormatting.GRAY);
-            for (int i = 0; i < cooling.size(); i++) {
-                Player player = cooling.get(i);
-                if (i > 0) {
-                    line.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY));
-                }
-                ChatFormatting color = online.contains(key(player.name)) ? ChatFormatting.WHITE : ChatFormatting.DARK_GRAY;
-                line.append(Component.literal(player.name + " ").withStyle(color))
-                        .append(Component.literal(formatLeft(player.lastUsedMs + COOLDOWN_MS - now)).withStyle(ChatFormatting.YELLOW));
-            }
-            McCompat.chat(client.player, line);
-        }
-        if (store().players.isEmpty()) {
+        if (entries.isEmpty()) {
             McCompat.chat(client.player, Component.literal(" Nobody tracked yet. Celestials show up once they chat or use their booster.")
-                    .withStyle(ChatFormatting.DARK_GRAY));
+                    .withStyle(ChatFormatting.GRAY));
+            return;
         }
+        McCompat.chat(client.player, Component.literal(" Ready now ").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
+                .append(Component.literal("(" + readyOnline.size() + " online"
+                        + (readyOffline > 0 ? ", " + readyOffline + " offline" : "") + ")").withStyle(ChatFormatting.GRAY)));
+        if (!readyOnline.isEmpty()) {
+            MutableComponent names = Component.literal("  ");
+            for (int i = 0; i < readyOnline.size(); i++) {
+                if (i > 0) {
+                    names.append(Component.literal("  ·  ").withStyle(ChatFormatting.GRAY));
+                }
+                names.append(Component.literal(readyOnline.get(i).name()).withStyle(ChatFormatting.GREEN));
+            }
+            McCompat.chat(client.player, names);
+        }
+        if (!cooling.isEmpty()) {
+            McCompat.chat(client.player, Component.literal(" Next up ").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD)
+                    .append(Component.literal("(" + cooling.size() + " on cooldown)").withStyle(ChatFormatting.GRAY)));
+            MutableComponent next = Component.literal("  ");
+            for (int i = 0; i < Math.min(CHAT_NEXT_UP, cooling.size()); i++) {
+                Entry entry = cooling.get(i);
+                if (i > 0) {
+                    next.append(Component.literal("  ·  ").withStyle(ChatFormatting.GRAY));
+                }
+                next.append(Component.literal(formatLeft(entry.readyAtMs() - now) + " ").withStyle(ChatFormatting.YELLOW))
+                        .append(Component.literal(entry.name()).withStyle(entry.online() ? ChatFormatting.WHITE : ChatFormatting.GRAY));
+            }
+            McCompat.chat(client.player, next);
+        }
+        McCompat.chat(client.player, Component.literal(" [Open full list]").withStyle(style -> style
+                .withColor(ChatFormatting.AQUA)
+                .withClickEvent(new ClickEvent.RunCommand("/celestials"))
+                .withHoverEvent(new HoverEvent.ShowText(Component.literal("Opens the Boosts tab of the Celestial Market")))));
     }
 
-    private static boolean isReady(Player player, long now) {
-        return player.lastUsedMs <= 0L || now - player.lastUsedMs >= COOLDOWN_MS;
-    }
-
-    private static String formatLeft(long ms) {
+    static String formatLeft(long ms) {
         long minutes = Math.max(1L, ms / 60_000L);
         return minutes >= 60L ? (minutes / 60L) + "h " + (minutes % 60L) + "m" : minutes + "m";
     }

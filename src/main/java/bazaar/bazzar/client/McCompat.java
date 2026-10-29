@@ -45,6 +45,18 @@ final class McCompat {
         //?}
     }
 
+    static void showTitle(Minecraft client, int fadeIn, int stay, int fadeOut, Component title, Component subtitle) {
+        //? if >=26.1 {
+        /*client.gui.hud.setTimes(fadeIn, stay, fadeOut);
+        client.gui.hud.setSubtitle(subtitle);
+        client.gui.hud.setTitle(title);
+        *///?} else {
+        client.gui.setTimes(fadeIn, stay, fadeOut);
+        client.gui.setSubtitle(subtitle);
+        client.gui.setTitle(title);
+        //?}
+    }
+
     static BossHealthOverlay bossOverlay(Minecraft client) {
         //? if >=26.1 {
         /*return client.gui.hud.getBossOverlay();

@@ -154,10 +154,14 @@ final class BazaarTrackerScreen extends Screen {
     private String publicPresetsNote = "";
     private PublicPresets.Preset publicConfirm;
     private long publicConfirmUntilMs;
+    private final CelestialPanel celestial = new CelestialPanel();
 
     BazaarTrackerScreen() {
         super(Component.literal("Bazaar Crop Tracker"));
         ShardPayController.applyConfig(BazzarConfig.load());
+        if (activeMainTab == MainTab.CELESTIAL) {
+            celestial.show(celestial.view);
+        }
     }
 
     @Override
@@ -168,6 +172,7 @@ final class BazaarTrackerScreen extends Screen {
         top = Math.max(4, (height - panelH) / 2);
         refreshThemeColors();
         clearWidgets();
+        celestial.init(this::addRenderableWidget);
         createTriggerBoxes();
         createMacroBoxes();
         createShardPayBoxes();
@@ -310,6 +315,7 @@ final class BazaarTrackerScreen extends Screen {
     }
 
     private void updateTriggerBoxVisibility() {
+        celestial.setVisible(activeMainTab == MainTab.CELESTIAL);
         boolean show = activeMainTab == MainTab.AUTO_CMD;
         for (int i = 0; i < ChatCommandTriggerController.SLOT_COUNT; i++) {
             int rowY = settingsTop() + 30 + i * triggerRowStep();
@@ -417,6 +423,9 @@ final class BazaarTrackerScreen extends Screen {
         if (activeMainTab == MainTab.TRACKER) {
             drawToolbar(graphics, mouseX, mouseY);
             drawList(graphics, mouseX, mouseY);
+        } else if (activeMainTab == MainTab.CELESTIAL) {
+            celestial.render(graphics, contentX(), settingsClipTop(), contentW(), footerLineY() - 2 - settingsClipTop(),
+                    left, top, panelW, panelH, mouseX, mouseY);
         } else if (activeMainTab == MainTab.AUTO_SCAN) {
             drawAutoScanPanel(graphics, mouseX, mouseY);
         } else if (activeMainTab == MainTab.AUTO_EGG) {
@@ -462,7 +471,23 @@ final class BazaarTrackerScreen extends Screen {
         }
         updateTriggerBoxVisibility();
         super.render(graphics, mouseX, mouseY, delta);
+        if (activeMainTab == MainTab.CELESTIAL) {
+            celestial.renderOverlay(graphics, mouseX, mouseY);
+        }
         graphics.pose().popMatrix();
+    }
+
+    // opens the menu on the Celestial tab, for the market commands and the buy key
+    static BazaarTrackerScreen openCelestial(CelestialPanel.View view) {
+        BazaarTrackerScreen screen = new BazaarTrackerScreen();
+        screen.activeMainTab = MainTab.CELESTIAL;
+        lastActiveTab = MainTab.CELESTIAL;
+        screen.celestial.show(view);
+        return screen;
+    }
+
+    boolean showingCelestial() {
+        return activeMainTab == MainTab.CELESTIAL;
     }
 
     @Override
@@ -476,6 +501,10 @@ final class BazaarTrackerScreen extends Screen {
     public void tick() {
         if (closingSinceMs >= 0L && System.currentTimeMillis() - closingSinceMs >= 130L) {
             McCompat.setScreen(Minecraft.getInstance(), null);
+            return;
+        }
+        if (activeMainTab == MainTab.CELESTIAL) {
+            celestial.tick();
         }
     }
 
@@ -486,6 +515,11 @@ final class BazaarTrackerScreen extends Screen {
         }
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
+
+        // the pay warning blocks the whole menu until it's answered
+        if (activeMainTab == MainTab.CELESTIAL && celestial.modal()) {
+            return celestial.mouseClicked(mouseX, mouseY, event.button());
+        }
 
         MainTab[] tabs = MainTab.values();
         for (int i = 0; i < tabs.length; i++) {
@@ -498,9 +532,13 @@ final class BazaarTrackerScreen extends Screen {
                     if (tab == MainTab.GEM_FLIPS) {
                         reloadGemFlips();
                     }
+                    if (tab == MainTab.CELESTIAL) {
+                        celestial.show(celestial.view);
+                    }
                     statusText = switch (tab) {
                         case TRACKER -> "Tracker tab opened.";
                         case GEM_FLIPS -> "Best gem flips tab opened.";
+                        case CELESTIAL -> "Celestial market opened.";
                         case AUTO_SCAN -> "Auto scan settings opened.";
                         case AUTO_EGG -> "Misc settings opened.";
                         case AUTO_CMD -> "Auto command triggers opened.";
@@ -541,6 +579,13 @@ final class BazaarTrackerScreen extends Screen {
 
         if (settingsMaxScroll() > 0 && (mouseY < settingsClipTop() || mouseY >= settingsClipBottom())) {
             return true;
+        }
+
+        if (activeMainTab == MainTab.CELESTIAL) {
+            if (celestial.mouseClicked(mouseX, mouseY, event.button())) {
+                return true;
+            }
+            return super.mouseClicked(event, bl);
         }
 
         if (activeMainTab == MainTab.AUTO_SCAN) {
@@ -869,6 +914,7 @@ final class BazaarTrackerScreen extends Screen {
             case TRACKER -> "CROP TRACKER";
             case AUTO_SCAN -> "AUTO SCAN SETTINGS";
             case GEM_FLIPS -> "GEM FLIP SUGGESTIONS";
+            case CELESTIAL -> "CELESTIAL MARKET";
             case AUTO_EGG -> "MISC SETTINGS";
             case AUTO_CMD -> "AUTO COMMAND TRIGGERS";
             case MACROS -> "CHAT MACROS";
@@ -926,6 +972,7 @@ final class BazaarTrackerScreen extends Screen {
                     ? "ON · every " + BazaarAutoScanController.getAutoScanIntervalSeconds() + "s"
                     : "OFF";
             case GEM_FLIPS -> "";
+            case CELESTIAL -> celestial.headerInfo();
             case AUTO_EGG -> AutoEggController.isEnabled() ? "ON" : "OFF";
             case HUD -> GuildQuestScanner.isAutoScanEnabled() ? "Auto ON · on refresh" : "Auto OFF";
             case MILESTONES -> MobMilestones.hasData() ? MobMilestones.entries().size() + " mobs" : "Not scanned";
@@ -2039,7 +2086,8 @@ final class BazaarTrackerScreen extends Screen {
             {"Cobble Auto Pay"},
             {"/setcobble <price>", "Price you pay per cobble received"},
             {"/setcobble on|off", "Turn cobble auto pay on or off"},
-            {"", "Payments of 5 or fewer shards, gems or cobble are ignored"},
+            {"/setshardprice min <amount>", "Only pay when more than this arrives (default 5, 0 pays for any amount)"},
+            {"", "Same for /setgemprice min and /setcobble min"},
             {"Calculators"},
             {"/calcshard <count>", "What that many shards are worth"},
             {"/calcgems <count>", "What that many gems are worth at your gem price"},
@@ -2053,9 +2101,14 @@ final class BazaarTrackerScreen extends Screen {
             {"/config public [list|view|apply|upload|delete]", "Browse public presets, or share yours with upload <name>"},
             {"/cookie <type>", "Use a cookie: auto, suspicious, cobbled, colossal, golden..."},
             {"/milestonescan", "Read your kills from /milestones for the mob milestone HUD"},
-            {"/requestcelestial", "Ask in chat for a Celestial Boost and see who has theirs ready"},
-            {"/celestials", "Who has their Celestial Boost ready, and everyone's 4h timer"},
-            {"accept celestial", "Type in chat (or click [Accept]) to run /celestialbooster for a request"},
+            {"/bazzarguild <name>", "Share guild quests with your guild, an AFK member scans /gq for everyone"},
+            {"/requestcelestial", "Ask the free pool for a Celestial Boost, first to accept boosts"},
+            {"/cbshop", "Open the Celestial market: buy boosts, list yours and see who bought it"},
+            {"/cbsell <price> <currency>", "List your boost for tokens, cobble, gems or shards (/cbsell off to delete)"},
+            {"/cbpool on|off", "Join the free pool and get an [Accept] button on requests"},
+            {"U / I", "Toggle the Celestial market HUD / buy the cheapest boost (only while the HUD is on)"},
+            {"/celestials", "Opens the Boosts tab: who has their Celestial Boost ready, and everyone's 4h timer"},
+            {"accept celestial", "Type in chat (or click [Accept]) to take the last pool request"},
             {"/blacklist <crop>", "Hide a crop from the tracker, run again to unhide"},
             {"/bazzarupdate [on|off]", "Check for an update now, or turn auto update on/off"},
             {"/bazzarusers [on|off]", "Show Bazzar users online, or turn being counted on/off"},
@@ -2338,6 +2391,9 @@ final class BazaarTrackerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (activeMainTab == MainTab.CELESTIAL) {
+            return celestial.mouseScrolled(mouseX, mouseY, scrollY);
+        }
         if (activeMainTab == MainTab.THEMES) {
             int maxScroll = Math.max(0, themesTotalH() - themesAvailH());
             themeScroll = Math.max(0, Math.min((int) (themeScroll - scrollY * 18.0d), maxScroll));
@@ -2393,6 +2449,15 @@ final class BazaarTrackerScreen extends Screen {
 
     private void resetCurrentTab() {
         switch (activeMainTab) {
+            case CELESTIAL -> {
+                // only your own view settings, never your listing or prices
+                BazzarConfig.State state = BazzarConfig.load();
+                state.cbQuickCurrency = "tokens";
+                state.cbBuyCooldown = true;
+                state.cbWarningHidden = false;
+                BazzarConfig.save(state);
+                statusText = "Celestial view settings reset.";
+            }
             case AUTO_SCAN -> {
                 BazaarAutoScanController.setAutoScanEnabled(false);
                 BazaarAutoScanController.setAutoScanIntervalSeconds(120);
@@ -3628,6 +3693,7 @@ final class BazaarTrackerScreen extends Screen {
     private enum MainTab {
         TRACKER("Tracker"),
         GEM_FLIPS("Gem Flips"),
+        CELESTIAL("Celestial Market"),
         AUTO_SCAN("Auto Scan"),
         AUTO_CMD("Auto Cmd"),
         MACROS("Macros"),
@@ -3648,7 +3714,7 @@ final class BazaarTrackerScreen extends Screen {
 
         String group() {
             return switch (this) {
-                case TRACKER, GEM_FLIPS, AUTO_SCAN -> "BAZAAR";
+                case TRACKER, GEM_FLIPS, CELESTIAL, AUTO_SCAN -> "BAZAAR";
                 case AUTO_CMD, MACROS, SHARD_PAY, COOKIE, PRESETS -> "QUALITY OF LIFE";
                 case HUD, MILESTONES, AUTO_EGG, THEMES -> "DISPLAY";
                 case INFO -> "HELP";

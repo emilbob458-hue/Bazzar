@@ -143,6 +143,12 @@ final class BazzarConfig {
         }
         state.milestoneMode = Math.max(0, Math.min(2, state.milestoneMode));
         state.milestoneHudStyle = Math.max(0, Math.min(1, state.milestoneHudStyle));
+        if (state.cbPrices == null) {
+            state.cbPrices = new HashMap<>();
+        }
+        if (state.cbQuickCurrency == null || state.cbQuickCurrency.isBlank()) {
+            state.cbQuickCurrency = "tokens";
+        }
         state.milestoneHudScale = Math.max(0.65f, Math.min(2.5f, state.milestoneHudScale));
         state.autoDumpPvPage = Math.max(1, Math.min(50, state.autoDumpPvPage));
         return state;
@@ -384,5 +390,20 @@ final class BazzarConfig {
         int milestoneHudY = 60;
         float milestoneHudScale = 1.0f;
         int milestoneHudStyle = 0;
+        double shardPayoutMin = 5.0d;
+        double gemPayoutMin = 5.0d;
+        double cobblePayoutMin = 5.0d;
+        boolean cbSellEnabled = false;
+        Map<String, Double> cbPrices = new HashMap<>();
+        boolean cbPoolEnabled = false;
+        String cbQuickCurrency = "tokens";
+        boolean cbHudVisible = false;
+        int cbHudX = 6;
+        int cbHudY = 100;
+        String guildName = "";
+        boolean cbWarningAccepted = false;
+        boolean cbWarningHidden = false;
+        boolean cbBuyCooldown = true;
+        long lastAnnouncementId = 0L;
     }
 }

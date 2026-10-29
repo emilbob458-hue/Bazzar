@@ -142,6 +142,7 @@ public final class MobMilestones {
                 long now = System.currentTimeMillis();
                 RECENT_HITS.put(entity.getId(), now);
                 lastAttackMs = now;
+                GuildQuestScanner.onMobHit(entity);
                 String key = matchMob(entity);
                 if (key != null) {
                     currentMobKey = key;
@@ -297,6 +298,7 @@ public final class MobMilestones {
             return;
         }
         String line = clean(text);
+        GuildQuestScanner.onActionBar(line);
         Matcher matcher = MPS_PATTERN.matcher(line);
         if (!matcher.find()) {
             return;
@@ -392,6 +394,7 @@ public final class MobMilestones {
         if (!COUNTED_DEAD.add(living.getId())) {
             return;
         }
+        GuildQuestScanner.onMobKilled(living);
         if (addKill) {
             SessionProfitHud.onKills(1L);
         }

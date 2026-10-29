@@ -55,6 +55,9 @@ public class BazzarClient implements ClientModInitializer {
         PlayerStats.registerCommands();
         MobMilestones.registerCommands();
         CelestialTracker.registerCommands();
+        CelestialMarket.registerCommands();
+        GuildShare.registerCommands();
+        Announcements.registerCommands();
         KeyMapping scanKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.bazzar.scan",
                 GLFW.GLFW_KEY_B,
@@ -87,6 +90,15 @@ public class BazzarClient implements ClientModInitializer {
                 "key.bazzar.pv_search",
                 GLFW.GLFW_KEY_O,
                 BAZZAR_CATEGORY));
+        KeyMapping cbHudKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.bazzar.cb_hud",
+                GLFW.GLFW_KEY_U,
+                BAZZAR_CATEGORY));
+        KeyMapping cbBuyKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.bazzar.cb_buy",
+                GLFW.GLFW_KEY_I,
+                BAZZAR_CATEGORY));
+        CelestialMarketHud.setBuyKey(cbBuyKey);
         KeyMapping[] macroKeys = new KeyMapping[MacroController.KEY_MACRO_COUNT];
         for (int i = 0; i < macroKeys.length; i++) {
             macroKeys[i] = KeyBindingHelper.registerKeyBinding(new KeyMapping(
@@ -140,6 +152,20 @@ public class BazzarClient implements ClientModInitializer {
                     McCompat.setScreen(client, new PvSearchScreen());
                 }
             }
+            while (cbHudKey.consumeClick()) {
+                CelestialMarketHud.toggle(client);
+            }
+            while (cbBuyKey.consumeClick()) {
+                // the buy key only does something while the market HUD is on, so it can't fire by accident
+                if (CelestialMarketHud.isVisible() && McCompat.screen(client) == null) {
+                    // nobody gets charged by a hotkey before they've read the pay warning once
+                    if (BazzarConfig.load().cbWarningAccepted) {
+                        CelestialMarket.buyCheapest(client);
+                    } else {
+                        McCompat.setScreen(client, BazaarTrackerScreen.openCelestial(CelestialPanel.View.MARKET));
+                    }
+                }
+            }
             for (int i = 0; i < macroKeys.length; i++) {
                 while (macroKeys[i].consumeClick()) {
                     MacroController.sendKeyMacro(client, i);
@@ -164,6 +190,11 @@ public class BazzarClient implements ClientModInitializer {
             FarmMobScanner.tick(client);
             MobMilestones.tick(client);
             ChatTagCompletions.tick(client);
+            CelestialMarket.tick(client);
+            CelestialMarketHud.tick(client);
+            GuildShare.tick(client);
+            CelestialTracker.tick(client);
+            Announcements.tick(client);
             MultiplierMenuScanner.tick(client);
             AutoUpdater.tick(client);
             UsageStats.tick(client);
@@ -222,11 +253,13 @@ public class BazzarClient implements ClientModInitializer {
             ShardPayoutController.onChatLine(client, msg);
             GemPayoutController.onChatLine(client, msg);
             PayoutQueue.onChatLine(client, msg);
+            GuildQuestScanner.onChatLine(msg);
             ShardPayController.onChatLine(client, msg);
             CookieController.onChatMessage(client, msg);
             PlaytimeRewardsController.onChatLine(client, msg);
             CelestialBoosterReminder.onChatLine(client, msg);
             CelestialTracker.onChatLine(client, msg);
+            CelestialMarket.onChatLine(client, msg);
         });
         ClientReceiveMessageEvents.CHAT.register((message, signedMessage, sender, params, receptionTimestamp) -> {
             if (BazzarGuard.isBlocked()) {
@@ -242,13 +275,14 @@ public class BazzarClient implements ClientModInitializer {
             PlaytimeRewardsController.onChatLine(client, msg);
             CelestialBoosterReminder.onChatLine(client, msg);
             CelestialTracker.onChatLine(client, msg);
+            CelestialMarket.onChatLine(client, msg);
         });
 
         ClientSendMessageEvents.COMMAND.register(CelestialBoosterReminder::onCommandSent);
         ClientSendMessageEvents.ALLOW_CHAT.register(message -> BazzarGuard.isBlocked() || !CelestialTracker.onOwnChat(message));
         ClientSendMessageEvents.COMMAND.register(CookieController::onCommandSent);
         net.fabricmc.fabric.api.event.client.player.ClientPlayerBlockBreakEvents.AFTER.register(
-                (level, player, pos, state) -> BlockBreakCounter.onOwnBreak(pos));
+                (level, player, pos, state) -> BlockBreakCounter.onOwnBreak(pos, state));
 
 
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("bazzar", "hud"), (graphics, tickDelta) -> {
@@ -263,6 +297,7 @@ public class BazzarClient implements ClientModInitializer {
                 QuestCommandHud.render(graphics, -1, -1);
                 SessionProfitHud.render(graphics, -1, -1);
                 MobMilestoneHud.render(graphics, -1, -1);
+                CelestialMarketHud.render(graphics, -1, -1);
             }
         });
 
@@ -277,6 +312,7 @@ public class BazzarClient implements ClientModInitializer {
                 QuestCommandHud.onMouseClick(scr, event);
                 SessionProfitHud.onMouseClick(scr, event);
                 MobMilestoneHud.onMouseClick(scr, event);
+                CelestialMarketHud.onMouseClick(scr, event);
                 ScoreboardOverlay.onMouseClick(scr, event);
                 return false;
             });
@@ -286,6 +322,7 @@ public class BazzarClient implements ClientModInitializer {
                 QuestCommandHud.onMouseRelease(scr, event);
                 SessionProfitHud.onMouseRelease(scr, event);
                 MobMilestoneHud.onMouseRelease(scr, event);
+                CelestialMarketHud.onMouseRelease(scr, event);
                 ScoreboardOverlay.onMouseRelease(scr, event);
                 return false;
             });
@@ -295,6 +332,7 @@ public class BazzarClient implements ClientModInitializer {
                 QuestCommandHud.onMouseDrag(scr, event, deltaX, deltaY);
                 SessionProfitHud.onMouseDrag(scr, event, deltaX, deltaY);
                 MobMilestoneHud.onMouseDrag(scr, event, deltaX, deltaY);
+                CelestialMarketHud.onMouseDrag(scr, event, deltaX, deltaY);
                 ScoreboardOverlay.onMouseDrag(scr, event, deltaX, deltaY);
                 return false;
             });
@@ -313,6 +351,7 @@ public class BazzarClient implements ClientModInitializer {
                 QuestCommandHud.render(graphics, mouseX, mouseY);
                 SessionProfitHud.render(graphics, mouseX, mouseY);
                 MobMilestoneHud.render(graphics, mouseX, mouseY);
+                CelestialMarketHud.render(graphics, mouseX, mouseY);
             });
         });
     }

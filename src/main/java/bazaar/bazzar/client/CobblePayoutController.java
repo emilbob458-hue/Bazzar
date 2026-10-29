@@ -36,6 +36,8 @@ final class CobblePayoutController {
                         .executes(CobblePayoutController::runStatus)
                         .then(literal("on").executes(ctx -> runToggle(ctx, true)))
                         .then(literal("off").executes(ctx -> runToggle(ctx, false)))
+                        .then(literal("min").then(argument("amount", StringArgumentType.greedyString())
+                                .executes(ctx -> PayoutQueue.runSetMinimum(ctx, "cobble", "cobble"))))
                         .then(argument("price", StringArgumentType.greedyString())
                                 .executes(CobblePayoutController::runSetPrice))));
     }
@@ -49,7 +51,9 @@ final class CobblePayoutController {
                         .withStyle(state.cobblePayoutEnabled ? ChatFormatting.GREEN : ChatFormatting.RED))
                 .append(Component.literal("  price/cobble: ").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(priceText).withStyle(ChatFormatting.GOLD))
-                .append(Component.literal("  (/setcobble <price>, /setcobble on|off)").withStyle(ChatFormatting.DARK_GRAY)));
+                .append(Component.literal("  pays above: ").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal(SbText.formatCompact(state.cobblePayoutMin)).withStyle(ChatFormatting.GOLD))
+                .append(Component.literal("  (/setcobble <price>, on|off, min <amount>)").withStyle(ChatFormatting.DARK_GRAY)));
         return 1;
     }
 
@@ -64,7 +68,7 @@ final class CobblePayoutController {
         BazzarConfig.save(state);
         context.getSource().sendFeedback(prefix()
                 .append(Component.literal(enable
-                        ? "Cobble auto pay ON, paying " + SbText.formatCompact(state.cobblePayoutPrice) + " per cobble received." + PayoutQueue.minimumNote("cobble")
+                        ? "Cobble auto pay ON, paying " + SbText.formatCompact(state.cobblePayoutPrice) + " per cobble received." + PayoutQueue.minimumNote("cobble", "cobble")
                         : "Cobble auto pay OFF.")
                         .withStyle(enable ? ChatFormatting.GREEN : ChatFormatting.YELLOW)));
         return 1;

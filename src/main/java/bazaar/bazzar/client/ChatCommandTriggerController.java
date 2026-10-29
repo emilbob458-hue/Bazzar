@@ -13,6 +13,8 @@ import net.minecraft.client.Minecraft;
 final class ChatCommandTriggerController {
     static final int SLOT_COUNT = 8;
     private static final long COOLDOWN_MS = 5_000L;
+    // /launchtizzle (the hotdog trigger) can only go out once every 10 minutes
+    private static final long LAUNCH_COOLDOWN_MS = 10 * 60_000L;
     private static final long SENDER_COOLDOWN_MS = 30_000L;
     private static final long FIRE_WINDOW_MS = 30_000L;
     private static final int MAX_FIRES_PER_WINDOW = 3;
@@ -103,7 +105,8 @@ final class ChatCommandTriggerController {
             if (rule.triggerText().isBlank() || cmd == null || cmd.isBlank()) {
                 continue;
             }
-            if (now - slotLastSentMs[i] < COOLDOWN_MS) {
+            long cooldown = cmd.toLowerCase(Locale.ROOT).contains("launchtizzle") ? LAUNCH_COOLDOWN_MS : COOLDOWN_MS;
+            if (now - slotLastSentMs[i] < cooldown) {
                 continue;
             }
             boolean slotSelfOnly = selfOnlyFlags != null && i < selfOnlyFlags.size() && Boolean.TRUE.equals(selfOnlyFlags.get(i));

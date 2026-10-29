@@ -359,11 +359,11 @@ final class ShardPayController {
         return Role.NOT_LISTED;
     }
 
-    private static String formatWhole(double amount) {
+    static String formatWhole(double amount) {
         return java.math.BigDecimal.valueOf(Math.floor(amount)).toBigInteger().toString();
     }
 
-    private static String formatAmount(double amount) {
+    static String formatAmount(double amount) {
         long whole = (long) amount;
         if (amount == whole) {
             return Long.toString(whole);
