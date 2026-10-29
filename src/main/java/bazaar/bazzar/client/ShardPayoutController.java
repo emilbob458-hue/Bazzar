@@ -15,9 +15,9 @@ import net.minecraft.network.chat.MutableComponent;
 final class ShardPayoutController {
 
     private static final Pattern[] RECEIVE_PATTERNS = {
-            Pattern.compile("(?i)^\\s*(\\w{1,16})\\s+(?:has\\s+)?(?:sent|paid|gave)\\s+you\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,2})\\s+shards?"),
-            Pattern.compile("(?i)^\\s*you\\s+(?:have\\s+)?(?:received|got)\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,2})\\s+shards?\\s+from\\s+(\\w{1,16})"),
-            Pattern.compile("(?i)^\\s*received\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,2})\\s+shards?\\s+from\\s+(\\w{1,16})")
+            Pattern.compile("(?i)^\\s*(\\w{1,16})\\s+(?:has\\s+)?(?:sent|paid|gave)\\s+you\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,4})\\s+shards?"),
+            Pattern.compile("(?i)^\\s*you\\s+(?:have\\s+)?(?:received|got)\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,4})\\s+shards?\\s+from\\s+(\\w{1,16})"),
+            Pattern.compile("(?i)^\\s*received\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,4})\\s+shards?\\s+from\\s+(\\w{1,16})")
     };
 
 
@@ -120,7 +120,7 @@ final class ShardPayoutController {
             return null;
         }
         String normalized = raw.trim().replace(",", "").replace("_", "");
-        Matcher matcher = Pattern.compile("^([0-9]+(?:\\.[0-9]+)?)([a-zA-Z]{0,2})$").matcher(normalized);
+        Matcher matcher = Pattern.compile("^([0-9]+(?:\\.[0-9]+)?)([a-zA-Z]{0,4})$").matcher(normalized);
         if (!matcher.matches()) {
             return null;
         }
@@ -138,12 +138,10 @@ final class ShardPayoutController {
         return multiplier == null ? null : value * multiplier;
     }
 
-    private static final String[] PAY_SUFFIXES = {"k", "m", "b", "t", "q", "qi", "sx", "sp", "oc", "no", "dc"};
-
     static String formatPayAmount(double total) {
         double scaled = total;
         int tier = -1;
-        while (scaled >= 1_000d && tier < PAY_SUFFIXES.length - 1) {
+        while (scaled >= 1_000d && tier < SbText.SUFFIXES.length - 1) {
             scaled /= 1_000d;
             tier++;
         }
@@ -155,7 +153,7 @@ final class ShardPayoutController {
         if (text.endsWith(".")) {
             text = text.substring(0, text.length() - 1);
         }
-        return tier < 0 ? text : text + PAY_SUFFIXES[tier];
+        return tier < 0 ? text : text + SbText.SUFFIXES[tier];
     }
 
     private static MutableComponent prefix() {

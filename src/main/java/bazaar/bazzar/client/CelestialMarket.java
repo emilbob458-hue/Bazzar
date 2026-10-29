@@ -52,9 +52,9 @@ final class CelestialMarket {
     private static final long PAY_FAIL_WINDOW_MS = 8_000L;
     // "You received [item/gold_ingot@items]1.00M Tokens from RuinedBySeagulls." once sprites are stripped
     private static final Pattern[] PAYMENT_PATTERNS = {
-            Pattern.compile("(?i)^\\s*(\\w{3,16})\\s+(?:has\\s+)?(?:sent|paid|gave)\\s+you\\s+\\S*?([\\d,.]+[a-z]{0,2})\\s+(shards?|gems?|cobble|tokens?)\\b"),
-            Pattern.compile("(?i)^\\s*(\\w{3,16})\\s+sent\\s+\\S*?([\\d,.]+[a-z]{0,2})\\s+(shards?|gems?|cobble|tokens?)\\s+to\\s+(\\w{3,16})"),
-            Pattern.compile("(?i)you\\s+(?:have\\s+)?(?:received|got)\\s+\\S*?([\\d,.]+[a-z]{0,2})\\s+(shards?|gems?|cobble|tokens?)\\s+from\\s+(\\w{3,16})")
+            Pattern.compile("(?i)^\\s*(\\w{3,16})\\s+(?:has\\s+)?(?:sent|paid|gave)\\s+you\\s+\\S*?([\\d,.]+[a-z]{0,4})\\s+(shards?|gems?|cobble|tokens?)\\b"),
+            Pattern.compile("(?i)^\\s*(\\w{3,16})\\s+sent\\s+\\S*?([\\d,.]+[a-z]{0,4})\\s+(shards?|gems?|cobble|tokens?)\\s+to\\s+(\\w{3,16})"),
+            Pattern.compile("(?i)you\\s+(?:have\\s+)?(?:received|got)\\s+\\S*?([\\d,.]+[a-z]{0,4})\\s+(shards?|gems?|cobble|tokens?)\\s+from\\s+(\\w{3,16})")
     };
     private static final Pattern PAY_FAILED = Pattern.compile(
             "(?i)not enough|don'?t have enough|do not have enough|insufficient|can'?t afford|cannot afford");

@@ -6,16 +6,18 @@ import java.util.regex.Pattern;
 
 final class SbText {
     static final double MAX_SANE_AMOUNT = 1e66;
-    private static final String[] SUFFIXES = {
-            "k", "m", "b", "t", "qa", "qi", "sx", "sp", "oc", "no",
-            "dc", "udc", "ddc", "tdc", "qadc", "qidc", "sxdc", "spdc", "ocdc", "nodc", "vg"
+    // the server writes quadrillion as Q, so that is what the mod reads and prints; Qa means the same.
+    // Every suffix the server uses lives here, up to vigintillion, and the pay commands format from it too.
+    static final String[] SUFFIXES = {
+            "k", "m", "b", "t", "q", "qi", "sx", "sp", "oc", "no",
+            "dc", "udc", "ddc", "tdc", "qdc", "qidc", "sxdc", "spdc", "ocdc", "nodc", "vg"
     };
     private static final String[] SUFFIX_LABELS = {
-            "k", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No",
-            "Dc", "UDc", "DDc", "TDc", "QaDc", "QiDc", "SxDc", "SpDc", "OcDc", "NoDc", "Vg"
+            "k", "M", "B", "T", "Q", "Qi", "Sx", "Sp", "Oc", "No",
+            "Dc", "UDc", "DDc", "TDc", "QDc", "QiDc", "SxDc", "SpDc", "OcDc", "NoDc", "Vg"
     };
     static final Pattern AMOUNT_PATTERN = Pattern.compile(
-            "(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*(qadc|qidc|sxdc|spdc|ocdc|nodc|udc|ddc|tdc|dc|qa|qi|sx|sp|oc|no|vg|k|m|b|t)?(?![a-z])");
+            "(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*(qadc|qdc|qidc|sxdc|spdc|ocdc|nodc|udc|ddc|tdc|dc|qa|qi|sx|sp|oc|no|vg|k|m|b|t|q)?(?![a-z])");
     static final Pattern TIMER_AMOUNT_PATTERN = Pattern.compile("(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*\\(\\d{1,2}:\\d{2}\\)");
     private static final Pattern DURATION_PATTERN =
             Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(hours?|minutes?|seconds?)\\b");
@@ -100,10 +102,11 @@ final class SbText {
             if (value < 0d) {
                 continue;
             }
-            String suffix = matcher.group(2);
-            if (suffix != null && !suffix.isEmpty()) {
-                value *= suffixMultiplier(suffix);
+            double multiplier = suffixMultiplier(matcher.group(2));
+            if (multiplier < 0d) {
+                continue;
             }
+            value *= multiplier;
             if (value <= MAX_SANE_AMOUNT) {
                 return value;
             }
@@ -191,20 +194,42 @@ final class SbText {
         }
         double scaled = value;
         int tier = -1;
-        while (Math.abs(scaled) >= 1_000d && tier < SUFFIXES.length - 1) {
+        // 999.995 and not 1000: dividing 1e33 down drifts to 999.99..., and rounding it would print "1000No"
+        while (Math.abs(scaled) >= 999.995d && tier < SUFFIXES.length - 1) {
             scaled /= 1_000d;
             tier++;
         }
         return trimTrailing(String.format(Locale.ROOT, "%.2f", scaled)) + SUFFIX_LABELS[tier];
     }
 
-    private static double suffixMultiplier(String suffix) {
+    // 1e3 for k, 1e6 for m and so on; 1 for no suffix at all, -1 for something this doesn't know
+    static double suffixMultiplier(String suffix) {
+        if (suffix == null || suffix.isEmpty()) {
+            return 1d;
+        }
+        String wanted = switch (suffix.toLowerCase(Locale.ROOT)) {
+            case "qa" -> "q";
+            case "qadc" -> "qdc";
+            default -> suffix.toLowerCase(Locale.ROOT);
+        };
         for (int i = 0; i < SUFFIXES.length; i++) {
-            if (SUFFIXES[i].equals(suffix)) {
+            if (SUFFIXES[i].equals(wanted)) {
                 return Math.pow(1_000d, i + 1);
             }
         }
-        return 1d;
+        return -1d;
+    }
+
+    // the same tiers as formatCompact, in the lowercase form the server's own pay commands take
+    static String formatLower(double value) {
+        double scaled = value;
+        int tier = -1;
+        // 999.995 and not 1000: dividing 1e33 down drifts to 999.99..., and rounding it would print "1000No"
+        while (Math.abs(scaled) >= 999.995d && tier < SUFFIXES.length - 1) {
+            scaled /= 1_000d;
+            tier++;
+        }
+        return String.format(Locale.ROOT, "%.2f", scaled) + (tier < 0 ? "" : SUFFIXES[tier]);
     }
 
     private static String trimTrailing(String text) {

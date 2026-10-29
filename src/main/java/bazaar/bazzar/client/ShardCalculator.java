@@ -16,7 +16,7 @@ import net.minecraft.network.chat.MutableComponent;
 
 final class ShardCalculator {
     private static final Pattern COMPACT_NUMBER_PATTERN =
-            Pattern.compile("^\\s*([0-9]+(?:\\.[0-9]+)?)\\s*([a-zA-Z]{0,2})\\s*$");
+            Pattern.compile("^\\s*([0-9]+(?:\\.[0-9]+)?)\\s*([a-zA-Z]{0,4})\\s*$");
     private static final double BASE_MULTI = 1.0d;
     private static final double MULTI_BASE_COST = 3_000.0d;
     private static final double MULTI_COST_GROWTH = 2.24d;
@@ -411,7 +411,7 @@ final class ShardCalculator {
                 return null;
             }
             int letterStart = pos;
-            while (pos < text.length() && Character.isLetter(text.charAt(pos)) && pos - letterStart < 2) {
+            while (pos < text.length() && Character.isLetter(text.charAt(pos)) && pos - letterStart < 4) {
                 pos++;
             }
             while (pos > letterStart) {
@@ -489,56 +489,18 @@ final class ShardCalculator {
         return value * multiplier;
     }
 
+    // every suffix the server uses, from k up to vg; null when it isn't one
     static Double suffixMultiplier(String suffix) {
-        return switch (suffix.toLowerCase(Locale.ROOT)) {
-            case "k" -> 1e3d;
-            case "m" -> 1e6d;
-            case "b" -> 1e9d;
-            case "t" -> 1e12d;
-            case "q", "qa" -> 1e15d;
-            case "qi" -> 1e18d;
-            case "sx" -> 1e21d;
-            case "sp" -> 1e24d;
-            case "oc" -> 1e27d;
-            case "no" -> 1e30d;
-            case "dc" -> 1e33d;
-            default -> null;
-        };
+        if (suffix == null || suffix.isEmpty()) {
+            return null;
+        }
+        double multiplier = SbText.suffixMultiplier(suffix);
+        return multiplier > 0d ? multiplier : null;
     }
 
     private static String format(double value) {
-        if (value >= 1e33d) {
-            return String.format(Locale.ROOT, "%.2fdc", value / 1e33d);
-        }
-        if (value >= 1e30d) {
-            return String.format(Locale.ROOT, "%.2fno", value / 1e30d);
-        }
-        if (value >= 1e27d) {
-            return String.format(Locale.ROOT, "%.2foc", value / 1e27d);
-        }
-        if (value >= 1e24d) {
-            return String.format(Locale.ROOT, "%.2fsp", value / 1e24d);
-        }
-        if (value >= 1e21d) {
-            return String.format(Locale.ROOT, "%.2fsx", value / 1e21d);
-        }
-        if (value >= 1e18d) {
-            return String.format(Locale.ROOT, "%.2fqi", value / 1e18d);
-        }
-        if (value >= 1e15d) {
-            return String.format(Locale.ROOT, "%.2fq", value / 1e15d);
-        }
-        if (value >= 1_000_000_000_000d) {
-            return String.format(Locale.ROOT, "%.2ft", value / 1_000_000_000_000d);
-        }
-        if (value >= 1_000_000_000d) {
-            return String.format(Locale.ROOT, "%.2fb", value / 1_000_000_000d);
-        }
-        if (value >= 1_000_000d) {
-            return String.format(Locale.ROOT, "%.2fm", value / 1_000_000d);
-        }
         if (value >= 1_000d) {
-            return String.format(Locale.ROOT, "%.2fk", value / 1_000d);
+            return SbText.formatLower(value);
         }
         if (Math.rint(value) != value) {
             return String.format(Locale.ROOT, "%,.2f", value);

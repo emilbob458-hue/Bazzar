@@ -20,9 +20,9 @@ import net.minecraft.network.chat.MutableComponent;
 final class CobblePayoutController {
 
     private static final Pattern[] RECEIVE_PATTERNS = {
-            Pattern.compile("(?i)^\\s*(\\w{1,16})\\s+(?:has\\s+)?(?:sent|paid|gave)\\s+you\\s+(?:x|[ⓒ©$])?\\s*([\\d,.]+[a-z]{0,2})\\s+cobble"),
-            Pattern.compile("(?i)^\\s*you\\s+(?:have\\s+)?(?:received|got)\\s+(?:x|[ⓒ©$])?\\s*([\\d,.]+[a-z]{0,2})\\s+cobble\\s+from\\s+(\\w{1,16})"),
-            Pattern.compile("(?i)^\\s*received\\s+(?:x|[ⓒ©$])?\\s*([\\d,.]+[a-z]{0,2})\\s+cobble\\s+from\\s+(\\w{1,16})")
+            Pattern.compile("(?i)^\\s*(\\w{1,16})\\s+(?:has\\s+)?(?:sent|paid|gave)\\s+you\\s+(?:x|[ⓒ©$])?\\s*([\\d,.]+[a-z]{0,4})\\s+cobble"),
+            Pattern.compile("(?i)^\\s*you\\s+(?:have\\s+)?(?:received|got)\\s+(?:x|[ⓒ©$])?\\s*([\\d,.]+[a-z]{0,4})\\s+cobble\\s+from\\s+(\\w{1,16})"),
+            Pattern.compile("(?i)^\\s*received\\s+(?:x|[ⓒ©$])?\\s*([\\d,.]+[a-z]{0,4})\\s+cobble\\s+from\\s+(\\w{1,16})")
     };
 
 
@@ -172,7 +172,7 @@ final class CobblePayoutController {
             return null;
         }
         String normalized = raw.trim().replace(",", "").replace("_", "");
-        Matcher matcher = Pattern.compile("^([0-9]+(?:\\.[0-9]+)?)([a-zA-Z]{0,2})$").matcher(normalized);
+        Matcher matcher = Pattern.compile("^([0-9]+(?:\\.[0-9]+)?)([a-zA-Z]{0,4})$").matcher(normalized);
         if (!matcher.matches()) {
             return null;
         }

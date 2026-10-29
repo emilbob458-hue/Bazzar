@@ -14,9 +14,9 @@ import net.minecraft.network.chat.MutableComponent;
 final class GemPayoutController {
 
     private static final Pattern[] RECEIVE_PATTERNS = {
-            Pattern.compile("(?i)^\\s*(\\w{1,16})\\s+(?:has\\s+)?(?:sent|paid|gave)\\s+you\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,2})\\s+gems?"),
-            Pattern.compile("(?i)^\\s*you\\s+(?:have\\s+)?(?:received|got)\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,2})\\s+gems?\\s+from\\s+(\\w{1,16})"),
-            Pattern.compile("(?i)^\\s*received\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,2})\\s+gems?\\s+from\\s+(\\w{1,16})")
+            Pattern.compile("(?i)^\\s*(\\w{1,16})\\s+(?:has\\s+)?(?:sent|paid|gave)\\s+you\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,4})\\s+gems?"),
+            Pattern.compile("(?i)^\\s*you\\s+(?:have\\s+)?(?:received|got)\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,4})\\s+gems?\\s+from\\s+(\\w{1,16})"),
+            Pattern.compile("(?i)^\\s*received\\s+(?:x|[^\\w\\s])?\\s*([\\d,.]+[a-z]{0,4})\\s+gems?\\s+from\\s+(\\w{1,16})")
     };
 
 

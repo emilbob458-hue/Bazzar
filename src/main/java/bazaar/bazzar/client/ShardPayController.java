@@ -21,7 +21,7 @@ final class ShardPayController {
     private static final int PAY_GAP_JITTER_TICKS = 20;
     private static final long ALT_LINE_DEDUPE_MS = 1_500L;
     private static final Pattern ALT_RECEIVE_PATTERN = Pattern.compile(
-            "(?i)^\\s*you\\s+received\\s+[^\\w\\s]?\\s*([\\d,.]+[a-z]{0,2})\\s+(shards?|gems?|cobble)\\s+from\\s+(\\w{1,16})");
+            "(?i)^\\s*you\\s+received\\s+[^\\w\\s]?\\s*([\\d,.]+[a-z]{0,4})\\s+(shards?|gems?|cobble)\\s+from\\s+(\\w{1,16})");
 
     private static boolean enabled = false;
     private static String owner = "";
