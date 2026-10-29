@@ -1,6 +1,7 @@
 package bazaar.bazzar.client;
 
 import java.util.ArrayDeque;
+import java.util.Iterator;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -21,7 +22,11 @@ final class PayoutQueue {
     private static final Pattern SENT_PATTERN =
             Pattern.compile("(?i)^\\s*you\\s+sent\\s+.*?tokens?\\s+to\\s+(\\w{1,16})");
 
+    // how long a payment waits while we find out whether it was someone buying a Celestial Boost
+    private static final long BOOST_HOLD_MS = 6_000L;
+
     private static final ArrayDeque<Pending> QUEUE = new ArrayDeque<>();
+    private static final ArrayDeque<Held> HELD = new ArrayDeque<>();
     private static Pending inFlight = null;
     private static long lastSendMs = 0L;
 
@@ -68,6 +73,17 @@ final class PayoutQueue {
         if (received <= minimum(kind)) {
             return;
         }
+        String currency = currencyOf(kind);
+        if (CelestialMarket.mayPayForBoost(sender, currency, received)) {
+            // they may be paying for a Celestial Boost, which is not something to pay them back for
+            HELD.addLast(new Held(kind, currency, sender, received, total, amountText,
+                    System.currentTimeMillis() + BOOST_HOLD_MS));
+            return;
+        }
+        queue(client, kind, sender, received, total, amountText);
+    }
+
+    private static void queue(Minecraft client, String kind, String sender, double received, double total, String amountText) {
         PayoutLog.Entry entry = PayoutLog.addQueued(kind, sender, received, total);
         QUEUE.addLast(new Pending(entry, sender, amountText));
         String unit = "gem".equals(kind) ? (received == 1.0d ? " gem" : " gems")
@@ -85,6 +101,7 @@ final class PayoutQueue {
 
     static void tick(Minecraft client) {
         long now = System.currentTimeMillis();
+        releaseHeld(client, now);
         if (inFlight != null) {
             if (now - inFlight.sentMs < REPLY_TIMEOUT_MS) {
                 return;
@@ -103,6 +120,31 @@ final class PayoutQueue {
         next.sentMs = now;
         lastSendMs = now;
         inFlight = next;
+    }
+
+    private static void releaseHeld(Minecraft client, long now) {
+        Iterator<Held> it = HELD.iterator();
+        while (it.hasNext()) {
+            Held held = it.next();
+            if (CelestialMarket.claimedForBoost(held.sender(), held.currency(), held.received())) {
+                it.remove();
+                message(client, prefix()
+                        .append(Component.literal("Didn't auto pay ").withStyle(ChatFormatting.GRAY))
+                        .append(Component.literal(held.sender()).withStyle(ChatFormatting.AQUA))
+                        .append(Component.literal(", that was payment for your Celestial Boost.").withStyle(ChatFormatting.GRAY)));
+            } else if (now >= held.readyAtMs()) {
+                it.remove();
+                queue(client, held.kind(), held.sender(), held.received(), held.total(), held.amountText());
+            }
+        }
+    }
+
+    private static String currencyOf(String kind) {
+        return switch (kind) {
+            case "gem" -> "gems";
+            case "cobble" -> "cobble";
+            default -> "shards";
+        };
     }
 
     static void onChatLine(Minecraft client, String message) {
@@ -153,6 +195,10 @@ final class PayoutQueue {
 
     private static MutableComponent prefix() {
         return BazaarChat.prefix();
+    }
+
+    private record Held(String kind, String currency, String sender, double received, double total,
+            String amountText, long readyAtMs) {
     }
 
     private static final class Pending {

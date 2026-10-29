@@ -55,6 +55,7 @@ final class QuestLiveTracker {
     private final Map<Kind, Long> lastNameMs = new HashMap<>();
     private final Map<Kind, Long> lastSureMs = new HashMap<>();
     private long lastStepMs = 0L;
+    private double contributed = 0d;
 
     // a fresh /gq read or guild share is the truth again, so live counting starts over from it
     void onScan(List<String[]> scanned) {
@@ -182,7 +183,17 @@ final class QuestLiveTracker {
         if (amount <= 0d || !quest.open()) {
             return;
         }
+        double before = quest.added;
         quest.added = Math.min(quest.required - quest.base, quest.added + amount);
+        contributed += quest.added - before;
+    }
+
+    // everything this player has put into the guild quests since the last call, for the "who's working" HUD.
+    // It survives a rescan, which clears the quests, so a guild share doesn't wipe what you did.
+    double consumeContributed() {
+        double total = contributed;
+        contributed = 0d;
+        return total;
     }
 
     private List<Quest> active(Kind kind, long now) {

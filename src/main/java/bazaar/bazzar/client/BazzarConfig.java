@@ -151,6 +151,7 @@ final class BazzarConfig {
         }
         state.milestoneHudScale = Math.max(0.65f, Math.min(2.5f, state.milestoneHudScale));
         state.autoDumpPvPage = Math.max(1, Math.min(50, state.autoDumpPvPage));
+        state.guildWorkHudScale = Math.max(0.65f, Math.min(2.5f, state.guildWorkHudScale));
         return state;
     }
 
@@ -401,6 +402,10 @@ final class BazzarConfig {
         int cbHudX = 6;
         int cbHudY = 100;
         String guildName = "";
+        boolean guildWorkHudVisible = false;
+        int guildWorkHudX = 6;
+        int guildWorkHudY = 140;
+        float guildWorkHudScale = 1.0f;
         boolean cbWarningAccepted = false;
         boolean cbWarningHidden = false;
         boolean cbBuyCooldown = true;

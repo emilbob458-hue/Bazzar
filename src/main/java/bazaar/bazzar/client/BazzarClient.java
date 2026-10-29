@@ -30,6 +30,7 @@ public class BazzarClient implements ClientModInitializer {
         SessionProfitHud.applyConfig(config);
         QuestCommandHud.applyConfig(config);
         MobMilestoneHud.applyConfig(config);
+        GuildWorkHud.applyConfig(config);
         ShardCalculator.setShardPrice(config.shardPrice);
         ShardCalculator.setGemPrice(config.gemPrice);
         ShardCalculator.setCurrentMulti(config.currentMulti);
@@ -208,7 +209,9 @@ public class BazzarClient implements ClientModInitializer {
             boolean questHudDirty = QuestCommandHud.consumeDirty();
             boolean profitHudDirty = SessionProfitHud.consumeDirty();
             boolean milestoneHudDirty = MobMilestoneHud.consumeDirty();
-            if (hudDirty || autoScanDirty || guildQuestDirty || shadyDirty || questHudDirty || profitHudDirty || milestoneHudDirty) {
+            boolean guildWorkDirty = GuildWorkHud.consumeDirty();
+            if (hudDirty || autoScanDirty || guildQuestDirty || shadyDirty || questHudDirty || profitHudDirty || milestoneHudDirty
+                    || guildWorkDirty) {
                 BazzarConfig.State merged = BazzarConfig.load();
                 if (hudDirty) {
                     BazzarConfig.State hudOnly = PinnedBazaarHud.captureConfig();
@@ -234,6 +237,9 @@ public class BazzarClient implements ClientModInitializer {
                 }
                 if (milestoneHudDirty) {
                     MobMilestoneHud.applyConfigToState(merged);
+                }
+                if (guildWorkDirty) {
+                    GuildWorkHud.applyConfigToState(merged);
                 }
                 BazzarConfig.save(merged);
             }
@@ -298,6 +304,7 @@ public class BazzarClient implements ClientModInitializer {
                 SessionProfitHud.render(graphics, -1, -1);
                 MobMilestoneHud.render(graphics, -1, -1);
                 CelestialMarketHud.render(graphics, -1, -1);
+                GuildWorkHud.render(graphics, -1, -1);
             }
         });
 
@@ -313,6 +320,7 @@ public class BazzarClient implements ClientModInitializer {
                 SessionProfitHud.onMouseClick(scr, event);
                 MobMilestoneHud.onMouseClick(scr, event);
                 CelestialMarketHud.onMouseClick(scr, event);
+                GuildWorkHud.onMouseClick(scr, event);
                 ScoreboardOverlay.onMouseClick(scr, event);
                 return false;
             });
@@ -323,6 +331,7 @@ public class BazzarClient implements ClientModInitializer {
                 SessionProfitHud.onMouseRelease(scr, event);
                 MobMilestoneHud.onMouseRelease(scr, event);
                 CelestialMarketHud.onMouseRelease(scr, event);
+                GuildWorkHud.onMouseRelease(scr, event);
                 ScoreboardOverlay.onMouseRelease(scr, event);
                 return false;
             });
@@ -333,6 +342,7 @@ public class BazzarClient implements ClientModInitializer {
                 SessionProfitHud.onMouseDrag(scr, event, deltaX, deltaY);
                 MobMilestoneHud.onMouseDrag(scr, event, deltaX, deltaY);
                 CelestialMarketHud.onMouseDrag(scr, event, deltaX, deltaY);
+                GuildWorkHud.onMouseDrag(scr, event, deltaX, deltaY);
                 ScoreboardOverlay.onMouseDrag(scr, event, deltaX, deltaY);
                 return false;
             });
@@ -341,6 +351,7 @@ public class BazzarClient implements ClientModInitializer {
                 QuestCommandHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 SessionProfitHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 MobMilestoneHud.onMouseScroll(mouseX, mouseY, verticalAmount);
+                GuildWorkHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 ScoreboardOverlay.onMouseScroll(mouseX, mouseY, verticalAmount);
                 return false;
             });
@@ -352,6 +363,7 @@ public class BazzarClient implements ClientModInitializer {
                 SessionProfitHud.render(graphics, mouseX, mouseY);
                 MobMilestoneHud.render(graphics, mouseX, mouseY);
                 CelestialMarketHud.render(graphics, mouseX, mouseY);
+                GuildWorkHud.render(graphics, mouseX, mouseY);
             });
         });
     }

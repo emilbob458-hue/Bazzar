@@ -47,6 +47,8 @@ final class CelestialMarket {
 
     private static final long HEARTBEAT_MS = 30_000L;
     private static final long PAYMENT_MEMORY_MS = 3 * 60_000L;
+    private static final long CLAIM_MEMORY_MS = 30_000L;
+    private static final long PAYMENT_POLL_GAP_MS = 5_000L;
     private static final long PAY_FAIL_WINDOW_MS = 8_000L;
     // "You received [item/gold_ingot@items]1.00M Tokens from RuinedBySeagulls." once sprites are stripped
     private static final Pattern[] PAYMENT_PATTERNS = {
@@ -91,6 +93,8 @@ final class CelestialMarket {
     private static final Map<Integer, Order> openOrders = new LinkedHashMap<>();
     private static final Map<Integer, Double> paidSoFar = new LinkedHashMap<>();
     private static final ArrayDeque<Payment> recentPayments = new ArrayDeque<>();
+    // payments that went to a Celestial Boost order, so auto pay knows not to pay for them
+    private static final ArrayDeque<Payment> claimedPayments = new ArrayDeque<>();
     private static final Set<Integer> promptedRequests = new HashSet<>();
     private static List<Listing> listings = List.of();
     private static List<Sale> sales = List.of();
@@ -101,6 +105,7 @@ final class CelestialMarket {
     private static final long BUY_COOLDOWN_MS = 5_000L;
     private static long lastBuyMs = 0L;
     private static long nextHeartbeatMs = 0L;
+    private static long lastPaymentPollMs = 0L;
     private static int lastPromptedRequest = -1;
     private static CelestialPanel.View openTabNextTick = null;
 
@@ -474,6 +479,7 @@ final class CelestialMarket {
         }
         long now = System.currentTimeMillis();
         recentPayments.removeIf(payment -> now - payment.atMs() > PAYMENT_MEMORY_MS);
+        claimedPayments.removeIf(payment -> now - payment.atMs() > CLAIM_MEMORY_MS);
         if (pendingBuy != null && now - pendingBuy.paidAtMs() > PAY_FAIL_WINDOW_MS) {
             pendingBuy = null;
         }
@@ -619,9 +625,53 @@ final class CelestialMarket {
             Payment payment = new Payment(sender, currency, amount, System.currentTimeMillis());
             if (!applyPayment(client, payment)) {
                 recentPayments.addLast(payment);
+                pollForOrder(payment);
             }
             return;
         }
+    }
+
+    // a payment that could be someone buying a Celestial Boost, so auto pay holds it instead of paying straight away
+    static boolean mayPayForBoost(String sender, String currency, double amount) {
+        if (sender == null || currency == null) {
+            return false;
+        }
+        BazzarConfig.State state = BazzarConfig.load();
+        if (state == null || !state.cbSellEnabled) {
+            return false;
+        }
+        for (Order order : openOrders.values()) {
+            if (order.buyer().equalsIgnoreCase(sender) && order.currency().equals(currency)) {
+                return true;
+            }
+        }
+        // the order often lands a moment after the payment, so anything covering the listed price counts too
+        Double price = state.cbPrices == null ? null : state.cbPrices.get(currency);
+        return price != null && price > 0d && amount >= price * 0.995d;
+    }
+
+    // the payment was taken by a Celestial Boost order, so auto pay should leave it alone
+    static boolean claimedForBoost(String sender, String currency, double amount) {
+        Iterator<Payment> it = claimedPayments.iterator();
+        while (it.hasNext()) {
+            Payment payment = it.next();
+            if (payment.sender().equalsIgnoreCase(sender) && payment.currency().equals(currency)
+                    && Math.abs(payment.amount() - amount) < 0.001d) {
+                it.remove();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // a payment with no order behind it yet: ask the server now instead of waiting out the heartbeat
+    private static void pollForOrder(Payment payment) {
+        if (payment.atMs() - lastPaymentPollMs < PAYMENT_POLL_GAP_MS
+                || !mayPayForBoost(payment.sender(), payment.currency(), payment.amount())) {
+            return;
+        }
+        lastPaymentPollMs = payment.atMs();
+        nextHeartbeatMs = 0L;
     }
 
     private static boolean applyPayment(Minecraft client, Payment payment) {
@@ -633,6 +683,7 @@ final class CelestialMarket {
             }
             double paid = paidSoFar.merge(order.id(), payment.amount(), Double::sum);
             recentPayments.remove(payment);
+            claimedPayments.addLast(payment);
             // displayed amounts are rounded (1.00M), so allow a hair under the exact price
             if (paid < order.price() * 0.995d) {
                 status(client, order.buyer() + " paid " + SbText.formatCompact(paid) + " of "

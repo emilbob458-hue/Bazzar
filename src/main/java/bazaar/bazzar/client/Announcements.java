@@ -21,8 +21,8 @@ final class Announcements {
     private static final Set<UUID> ANNOUNCERS = Set.of(
             UUID.fromString("2b264ea3-b45d-477f-9214-a527ececba0d"),
             UUID.fromString("7732f46f-329a-4808-94fd-7fabe20bfb90"));
-    // announcements are rare, so check once when you join and then every half hour
-    private static final long POLL_MS = 30L * 60_000L;
+    // checked when you join and every couple of minutes after, so an announcement lands while it still matters
+    private static final long POLL_MS = 2L * 60_000L;
     private static final long JOIN_DELAY_MS = 5_000L;
     // a fresh install only shows announcements made in the last few minutes, not yesterday's
     private static final long FIRST_SHOW_MS = 10L * 60_000L;
@@ -75,7 +75,7 @@ final class Announcements {
     private static void post(Minecraft client, JsonObject body) {
         CelestialMarket.post("/announce", body, (code, json) -> {
             if (code == 200) {
-                say(client, "Announcement sent. Players see it when they join, or within 30 minutes if they're online.",
+                say(client, "Announcement sent. Players see it when they join, or within 2 minutes if they're online.",
                         ChatFormatting.GREEN);
                 nextPollMs = 0L;
             } else if (code == 403) {
@@ -118,7 +118,12 @@ final class Announcements {
             if (firstCheck && age > FIRST_SHOW_MS) {
                 return;
             }
-            show(client, json.get("author").getAsString(), json.get("text").getAsString());
+            String author = json.get("author").getAsString();
+            // whoever sent it already knows what it says, so it isn't shown back to them
+            if (client.getUser() != null && author.equalsIgnoreCase(client.getUser().getName())) {
+                return;
+            }
+            show(client, author, json.get("text").getAsString());
         });
     }
 

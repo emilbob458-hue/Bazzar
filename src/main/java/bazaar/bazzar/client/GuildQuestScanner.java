@@ -278,6 +278,16 @@ final class GuildQuestScanner {
         return String.format(Locale.ROOT, "%dm %02ds", minutes, secs);
     }
 
+    // how much this player has added to the guild quests since the last check
+    static double consumeLiveContribution() {
+        return LIVE.consumeContributed();
+    }
+
+    // when the current quests run out; also tells the guild HUD that a new set of quests started
+    static long questsRefreshAtMs() {
+        return questsRefreshAtMs;
+    }
+
     static int getSecondsUntilQuestRefresh() {
         if (questsRefreshAtMs <= 0L) {
             return -1;

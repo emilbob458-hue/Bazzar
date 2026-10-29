@@ -36,6 +36,8 @@ final class GuildShare {
     private static final long MAX_AGE_MS = 6L * 60L * 60_000L;
     // if no AFK member has scanned for this long, the normal auto scan takes over again
     private static final long FALLBACK_MS = 20L * 60_000L;
+    // how often everyone tells the guild what they've put into the quests, for the "who's working" HUD
+    private static final long WORKERS_MS = 30_000L;
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "Bazzar-GuildShare");
@@ -45,9 +47,17 @@ final class GuildShare {
     private static final Queue<Runnable> MAIN_THREAD = new ConcurrentLinkedQueue<>();
 
     private static long nextPollMs = 0L;
+    private static long nextWorkersMs = 0L;
     private static long lastAppliedUpdated = 0L;
     private static long staleSinceMs = 0L;
     private static boolean claiming = false;
+    private static long workCycle = 0L;
+    private static double myWork = 0d;
+    private static List<Worker> workers = List.of();
+
+    // a guildmate running Bazzar and how much of the current quests they've done
+    record Worker(String name, double done, boolean afk) {
+    }
 
     private GuildShare() {
     }
@@ -66,6 +76,13 @@ final class GuildShare {
                         .then(literal("off").executes(ctx -> {
                             setGuild("");
                             say(ctx.getSource().getClient(), "Guild quest sharing is off, /gq scans work like before.");
+                            return 1;
+                        }))
+                        .then(literal("hud").executes(ctx -> {
+                            boolean shown = GuildWorkHud.toggle();
+                            say(ctx.getSource().getClient(), shown
+                                    ? "Guild HUD shown, it lists who's working on the quests. Drag it to move, scroll to resize."
+                                    : "Guild HUD hidden.");
                             return 1;
                         }))
                         .then(argument("guild", StringArgumentType.greedyString()).executes(ctx -> {
@@ -95,13 +112,65 @@ final class GuildShare {
         while ((task = MAIN_THREAD.poll()) != null) {
             task.run();
         }
+        trackWork();
         String guild = guild();
         long now = System.currentTimeMillis();
-        if (guild.isEmpty() || client.player == null || client.getCurrentServer() == null || now < nextPollMs) {
+        if (guild.isEmpty() || client.player == null || client.getCurrentServer() == null) {
+            return;
+        }
+        if (now >= nextWorkersMs) {
+            nextWorkersMs = now + WORKERS_MS;
+            reportWork(client, guild);
+        }
+        if (now < nextPollMs) {
             return;
         }
         nextPollMs = now + POLL_MS;
         get("/gq/get?guild=" + URLEncoder.encode(guild, StandardCharsets.UTF_8), json -> onShared(client, guild, json));
+    }
+
+    // ---- who's actually doing the quests ----
+
+    static List<Worker> workers() {
+        return workers;
+    }
+
+    static double myWork() {
+        return myWork;
+    }
+
+    // the kills and farms this mod counted, kept per set of quests so it starts over when they refresh
+    private static void trackWork() {
+        double gained = GuildQuestScanner.consumeLiveContribution();
+        long cycle = GuildQuestScanner.questsRefreshAtMs();
+        if (cycle != workCycle) {
+            workCycle = cycle;
+            myWork = 0d;
+        }
+        if (gained > 0d) {
+            myWork += gained;
+        }
+    }
+
+    // everyone posts their own number and gets the whole guild's back, so idle members show up too
+    private static void reportWork(Minecraft client, String guild) {
+        JsonObject body = body(client, guild);
+        body.addProperty("done", Math.round(myWork));
+        body.addProperty("afk", PlayerStats.isAfk());
+        post("/gq/who", body, GuildShare::onWorkers);
+    }
+
+    private static void onWorkers(JsonObject json) {
+        if (json == null || !json.has("members")) {
+            return;
+        }
+        List<Worker> found = new ArrayList<>();
+        for (JsonElement element : json.getAsJsonArray("members")) {
+            JsonObject member = element.getAsJsonObject();
+            found.add(new Worker(member.get("name").getAsString(), member.get("done").getAsDouble(),
+                    member.has("afk") && member.get("afk").getAsBoolean()));
+        }
+        workers = found;
     }
 
     private static void onShared(Minecraft client, String guild, JsonObject json) {
@@ -181,6 +250,8 @@ final class GuildShare {
         BazzarConfig.save(state);
         lastAppliedUpdated = 0L;
         staleSinceMs = 0L;
+        nextWorkersMs = 0L;
+        workers = List.of();
     }
 
     private static JsonObject body(Minecraft client, String guild) {
