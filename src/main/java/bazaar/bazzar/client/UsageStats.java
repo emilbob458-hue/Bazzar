@@ -30,7 +30,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 
 final class UsageStats {
-    static final String ENDPOINT = "https://bazzar-stats.bazzar-stats.workers.dev";
+    // every Bazzar server call goes here; -Dbazzar.api=https://... points a test client somewhere else
+    static final String ENDPOINT = System.getProperty("bazzar.api", "https://bazzar-api.duckdns.org");
     private static final Path DIR = FabricLoader.getInstance().getConfigDir().resolve("bazzar");
     private static final Path ID_FILE = DIR.resolve("install-id.txt");
     private static final Path DISABLED = DIR.resolve("usage-stats-off");

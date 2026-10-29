@@ -33,7 +33,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 
 final class PlayerStats {
-    static final String SITE = "https://bazzar.bazzar-stats.workers.dev";
+    static final String SITE = "https://bazzar-api.duckdns.org";
     private static final Path DIR = FabricLoader.getInstance().getConfigDir().resolve("bazzar");
     private static final Path DISABLED = DIR.resolve("player-stats-off");
     private static final Path NOTICE_SHOWN = DIR.resolve("player-stats-notice");
