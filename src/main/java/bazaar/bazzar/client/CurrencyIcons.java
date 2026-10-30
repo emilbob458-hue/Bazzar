@@ -34,17 +34,8 @@ final class CurrencyIcons {
         SPRITE_PATHS.put(currency, path);
     }
 
-    // which currency the sprite on this line belongs to, for a sidebar that shows no word for it
-    static String currencyForSprite(String rawLine) {
-        if (rawLine == null || rawLine.indexOf('[') < 0) {
-            return null;
-        }
-        for (Map.Entry<String, String> known : SPRITE_PATHS.entrySet()) {
-            if (rawLine.contains(known.getValue())) {
-                return known.getKey();
-            }
-        }
-        return null;
+    static double amountAfterSprite(String rawLine, String currency) {
+        return SbText.amountAfterMarker(rawLine, SPRITE_PATHS.get(currency));
     }
 
     private CurrencyIcons() {

@@ -249,12 +249,9 @@ final class CelestialMarket {
     static double balance(Minecraft client, String currency) {
         for (ScoreboardReader.Line line : ScoreboardReader.readSidebar(client)) {
             String text = line.normalizedText();
-            // the sidebar often shows the currency's icon instead of writing its name out
-            if (currency.equals(CurrencyIcons.currencyForSprite(line.rawText()))) {
-                double amount = SbText.firstAmount(text);
-                if (amount >= 0d) {
-                    return amount;
-                }
+            double fromIcon = CurrencyIcons.amountAfterSprite(line.rawText(), currency);
+            if (fromIcon >= 0d) {
+                return fromIcon;
             }
             switch (currency) {
                 case "tokens" -> {

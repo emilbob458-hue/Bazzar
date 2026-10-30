@@ -230,4 +230,13 @@ class CelestialMarketTest {
         assertEquals("1M tokens, 40 cobble", CelestialMarket.priceText(prices));
         assertEquals("", CelestialMarket.priceText(Map.of()));
     }
+
+    @Test
+    void readsEachCurrencyFromItsOwnIconOnASharedLine() {
+        String purse = "PURSE [item/gold_ingot@items]945.28Q · [item/amethyst_shard@items]9.91k";
+        assertEquals(9_910d, SbText.amountAfterMarker(purse, "item/amethyst_shard"), 0.001d);
+        assertEquals(SbText.firstAmount("945.28q"), SbText.amountAfterMarker(purse, "item/gold_ingot"), 1d);
+        assertEquals(-1d, SbText.amountAfterMarker(purse, "item/prismarine_shard"));
+        assertEquals(-1d, SbText.amountAfterMarker("PURSE [item/gold_ingot@items]945.28Q · [item/amethyst_shard@items]", "item/amethyst_shard"));
+    }
 }

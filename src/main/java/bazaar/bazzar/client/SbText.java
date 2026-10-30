@@ -125,6 +125,26 @@ final class SbText {
         return firstAmount(normalizedLine.substring(idx + label.length()));
     }
 
+    static double amountAfterMarker(String raw, String marker) {
+        if (raw == null || marker == null || marker.isEmpty()) {
+            return -1d;
+        }
+        int idx = raw.indexOf(marker);
+        if (idx < 0) {
+            return -1d;
+        }
+        int close = raw.indexOf(']', idx);
+        if (close < 0) {
+            return -1d;
+        }
+        String rest = raw.substring(close + 1);
+        int next = rest.indexOf('[');
+        if (next >= 0) {
+            rest = rest.substring(0, next);
+        }
+        return firstAmount(normalizeText(rest));
+    }
+
     static double segmentAmount(String line, int index) {
         if (line == null || index < 0) {
             return -1d;
