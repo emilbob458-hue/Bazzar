@@ -6,8 +6,9 @@ import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.lit
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -83,6 +84,14 @@ final class AutoUpdater {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
+    // what the buttons send, so tab completion offers the same words back
+    private static final SuggestionProvider<FabricClientCommandSource> DELAY_SUGGESTIONS = (context, builder) -> {
+        for (String option : new String[]{"now", "30m", "1h", "4h", "12h", "24h"}) {
+            builder.suggest(option);
+        }
+        return builder.buildFuture();
+    };
+
     private AutoUpdater() {
     }
 
@@ -93,16 +102,18 @@ final class AutoUpdater {
                     .executes(AutoUpdater::runCheck)
                     .then(literal("on").executes(ctx -> runToggle(ctx, true)))
                     .then(literal("off").executes(ctx -> runToggle(ctx, false)))
-                    .then(literal("in").then(argument("minutes", IntegerArgumentType.integer(0, 1440))
-                            .executes(ctx -> runCloseIn(ctx, IntegerArgumentType.getInteger(ctx, "minutes"))))));
+                    .then(literal("in").then(argument("when", StringArgumentType.greedyString())
+                            .suggests(DELAY_SUGGESTIONS)
+                            .executes(ctx -> runCloseIn(ctx, StringArgumentType.getString(ctx, "when"))))));
             // the mod is Bazzar but everyone types the Bazaar spelling, so answer to both
             dispatcher.register(literal("bazaarupdate")
                     .requires(source -> !BazzarGuard.isBlocked())
                     .executes(AutoUpdater::runCheck)
                     .then(literal("on").executes(ctx -> runToggle(ctx, true)))
                     .then(literal("off").executes(ctx -> runToggle(ctx, false)))
-                    .then(literal("in").then(argument("minutes", IntegerArgumentType.integer(0, 1440))
-                            .executes(ctx -> runCloseIn(ctx, IntegerArgumentType.getInteger(ctx, "minutes"))))));
+                    .then(literal("in").then(argument("when", StringArgumentType.greedyString())
+                            .suggests(DELAY_SUGGESTIONS)
+                            .executes(ctx -> runCloseIn(ctx, StringArgumentType.getString(ctx, "when"))))));
         });
     }
 
@@ -436,31 +447,40 @@ final class AutoUpdater {
                         + "and you pick when: " + UpdateSchedule.whenText(leftMs) + " unless you choose sooner. "
                         : "Bazzar " + latest + " installs when Minecraft closes, " + UpdateSchedule.whenText(leftMs) + ". Sooner? ")
                 .withStyle(ChatFormatting.YELLOW));
-        for (int minutes : new int[]{0, 60, 240, 720}) {
-            line.append(button(minutes));
+        for (String option : new String[]{"now", "1h", "4h", "12h"}) {
+            line.append(button(option));
         }
         return line;
     }
 
-    private static MutableComponent button(int minutes) {
-        String label = minutes == 0 ? "[Now]" : "[" + (minutes < 60 ? minutes + "m" : (minutes / 60) + "h") + "]";
-        return Component.literal(label + " ").withStyle(style -> style
-                .withColor(minutes == 0 ? ChatFormatting.RED : ChatFormatting.GREEN)
+    private static MutableComponent button(String option) {
+        boolean now = "now".equals(option);
+        String label = "[" + (now ? "Now" : option) + "] ";
+        return Component.literal(label).withStyle(style -> style
+                .withColor(now ? ChatFormatting.RED : ChatFormatting.GREEN)
                 .withBold(true)
-                .withClickEvent(new ClickEvent.RunCommand("/bazzarupdate in " + minutes))
-                .withHoverEvent(new HoverEvent.ShowText(Component.literal(minutes == 0
+                .withClickEvent(new ClickEvent.RunCommand("/bazzarupdate in " + option))
+                .withHoverEvent(new HoverEvent.ShowText(Component.literal(now
                         ? "Close now and install it"
-                        : "Close in " + UpdateSchedule.whenText(minutes * 60_000L).substring(3) + " and install it"))));
+                        : "Close " + UpdateSchedule.whenText(UpdateSchedule.parseDelayMs(option))
+                                + " and install it"))));
     }
 
     // a time the player picked from the buttons or typed themselves
-    private static int runCloseIn(CommandContext<FabricClientCommandSource> context, int minutes) {
+    private static int runCloseIn(CommandContext<FabricClientCommandSource> context, String when) {
         if (forceCloseAtMs <= 0L) {
             context.getSource().sendFeedback(prefix().append(Component.literal(
                     "No update is waiting to install.").withStyle(ChatFormatting.GRAY)));
             return 0;
         }
-        long delay = UpdateSchedule.clampDelayMs(minutes * 60_000L);
+        long requested = UpdateSchedule.parseDelayMs(when);
+        if (requested < 0L) {
+            context.getSource().sendFeedback(prefix().append(Component.literal(
+                            "I can't read \"" + when + "\" as a time. Try now, 30m, 4h or 1h30m.")
+                    .withStyle(ChatFormatting.RED)));
+            return 0;
+        }
+        long delay = UpdateSchedule.clampDelayMs(requested);
         forceCloseAtMs = System.currentTimeMillis() + delay;
         nextForceWarnMs = 0L;
         nextForceRemindMs = System.currentTimeMillis() + FORCE_REMIND_MS;

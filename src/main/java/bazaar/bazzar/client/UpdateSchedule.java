@@ -16,6 +16,67 @@ final class UpdateSchedule {
         return Math.max(0L, Math.min(MAX_DELAY_MS, requestedMs));
     }
 
+    // "4h", "90m", "1h30m", "1h 30m", "now" or a plain number of minutes. -1 if it reads as none
+    // of those, so the command can say so instead of quietly closing the game at the wrong time.
+    static long parseDelayMs(String text) {
+        if (text == null) {
+            return -1L;
+        }
+        String cleaned = text.trim().toLowerCase().replace(" ", "");
+        if (cleaned.isEmpty()) {
+            return -1L;
+        }
+        if (cleaned.equals("now")) {
+            return 0L;
+        }
+        long total = 0L;
+        int i = 0;
+        boolean any = false;
+        while (i < cleaned.length()) {
+            int start = i;
+            while (i < cleaned.length() && Character.isDigit(cleaned.charAt(i))) {
+                i++;
+            }
+            if (i == start) {
+                return -1L;
+            }
+            long amount;
+            try {
+                amount = Long.parseLong(cleaned.substring(start, i));
+            } catch (NumberFormatException e) {
+                return -1L;
+            }
+            int unitStart = i;
+            while (i < cleaned.length() && Character.isLetter(cleaned.charAt(i))) {
+                i++;
+            }
+            long unitMs = unitMs(cleaned.substring(unitStart, i));
+            if (unitMs < 0L) {
+                return -1L;
+            }
+            total += amount * unitMs;
+            any = true;
+        }
+        return any ? total : -1L;
+    }
+
+    // a bare number is minutes, which is what the buttons send and what people type most
+    private static long unitMs(String unit) {
+        if (unit.isEmpty() || unit.startsWith("min") || unit.equals("m")) {
+            return 60_000L;
+        }
+        if (unit.startsWith("h")) {
+            return 60L * 60_000L;
+        }
+        if (unit.startsWith("s")) {
+            return 1_000L;
+        }
+        if (unit.startsWith("d")) {
+            return 24L * 60L * 60_000L;
+        }
+        return -1L;
+    }
+
     static String whenText(long leftMs) {
         if (leftMs <= 0L) {
             return "now";

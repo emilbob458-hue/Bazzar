@@ -43,6 +43,57 @@ class ForcedUpdateDelayTest {
     }
 
     @Test
+    void hoursAreReadTheWayPeopleTypeThem() {
+        // the buttons say 4h, so typing 4h has to mean the same thing
+        assertEquals(4L * 60L * MINUTE, UpdateSchedule.parseDelayMs("4h"));
+        assertEquals(60L * MINUTE, UpdateSchedule.parseDelayMs("1h"));
+        assertEquals(12L * 60L * MINUTE, UpdateSchedule.parseDelayMs("12h"));
+        assertEquals(2L * 60L * MINUTE, UpdateSchedule.parseDelayMs("2 hours"));
+        assertEquals(3L * 60L * MINUTE, UpdateSchedule.parseDelayMs("3HR"));
+    }
+
+    @Test
+    void minutesStillWork() {
+        assertEquals(30L * MINUTE, UpdateSchedule.parseDelayMs("30m"));
+        assertEquals(45L * MINUTE, UpdateSchedule.parseDelayMs("45 mins"));
+        // a bare number is minutes, which is what the old command took
+        assertEquals(90L * MINUTE, UpdateSchedule.parseDelayMs("90"));
+        assertEquals(0L, UpdateSchedule.parseDelayMs("0"));
+        assertEquals(0L, UpdateSchedule.parseDelayMs("now"));
+        assertEquals(0L, UpdateSchedule.parseDelayMs("Now"));
+    }
+
+    @Test
+    void hoursAndMinutesTogether() {
+        assertEquals(90L * MINUTE, UpdateSchedule.parseDelayMs("1h30m"));
+        assertEquals(90L * MINUTE, UpdateSchedule.parseDelayMs("1h 30m"));
+        // a number with no unit after an hour is still minutes
+        assertEquals(90L * MINUTE, UpdateSchedule.parseDelayMs("1h30"));
+    }
+
+    @Test
+    void nonsenseIsRefusedInsteadOfGuessed() {
+        assertEquals(-1L, UpdateSchedule.parseDelayMs("later"));
+        assertEquals(-1L, UpdateSchedule.parseDelayMs("4 weeks"));
+        assertEquals(-1L, UpdateSchedule.parseDelayMs("h"));
+        assertEquals(-1L, UpdateSchedule.parseDelayMs(""));
+        assertEquals(-1L, UpdateSchedule.parseDelayMs("   "));
+        assertEquals(-1L, UpdateSchedule.parseDelayMs(null));
+        assertEquals(-1L, UpdateSchedule.parseDelayMs("-5m"));
+    }
+
+    @Test
+    void whatYouTypeAndWhatItSaysBackAgree() {
+        for (String option : new String[]{"now", "30m", "1h", "4h", "12h", "24h"}) {
+            long parsed = UpdateSchedule.parseDelayMs(option);
+            assertTrue(parsed >= 0L, option);
+            assertEquals(parsed, UpdateSchedule.clampDelayMs(parsed), option);
+        }
+        assertEquals("in 4h", UpdateSchedule.whenText(UpdateSchedule.parseDelayMs("4h")));
+        assertEquals("in 1h 30m", UpdateSchedule.whenText(UpdateSchedule.parseDelayMs("1h30m")));
+    }
+
+    @Test
     void theCountdownOnlyRunsOverTheLastMinute() {
         // otherwise a day's wait would put a red title on screen every ten seconds for 24 hours
         assertEquals(60_000L, UpdateSchedule.FINAL_WARNING_MS);
