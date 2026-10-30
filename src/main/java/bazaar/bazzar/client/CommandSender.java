@@ -3,6 +3,7 @@ package bazaar.bazzar.client;
 import java.util.ArrayDeque;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.protocol.game.ServerboundChatCommandPacket;
 
 // Every command this mod sends goes out through here. Each feature used to talk to the server
 // itself, so a rush cookie switch, a claimall and an auto payout landing in the same tick went out
@@ -44,7 +45,10 @@ final class CommandSender {
             return;
         }
         lastSentMs = now;
-        client.player.connection.sendCommand(queue.pollFirst());
+        // Straight to the server as a packet, never connection.sendCommand: that goes through the
+        // client command dispatcher first, so a command this mod shares a name with (/cookie) would
+        // run our own handler, which sends it again, and round it goes.
+        client.player.connection.send(new ServerboundChatCommandPacket(queue.pollFirst()));
     }
 
     static boolean readyToSend(long lastSentMs, long now) {
