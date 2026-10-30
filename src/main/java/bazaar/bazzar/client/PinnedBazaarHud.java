@@ -62,10 +62,9 @@ final class PinnedBazaarHud {
             return;
         }
 
+        // an empty HUD still draws its panel, otherwise turning it on in game looks like the key
+        // did nothing at all
         List<Integer> visibleIndexes = getVisibleIndexes();
-        if (visibleIndexes.isEmpty() && mouseX < 0) {
-            return;
-        }
         int rawHeight = panelHeight(visibleIndexes.size());
         int width = Math.round(PANEL_W * scale);
         int height = Math.round(rawHeight * scale);
@@ -496,6 +495,10 @@ final class PinnedBazaarHud {
 
     static boolean isVisible() {
         return visible;
+    }
+
+    static boolean hasPins() {
+        return !getVisibleIndexes().isEmpty();
     }
 
     static void applyConfig(BazzarConfig.State state) {

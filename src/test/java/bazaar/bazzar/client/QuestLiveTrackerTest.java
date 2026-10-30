@@ -463,4 +463,147 @@ class QuestLiveTrackerTest {
             }
         }
     }
+
+    // ---- fishing: one action bar line per fish landed ----
+    //   "GOOD · +1 Pilchard · 0.07 kg (+93 ms)"
+    //   "PERFECT · +5 Pilchard HOTSPOT x2 · 0.17 kg (-21 ms)"
+
+    private static String catchLine(String quality, String amount, String tail, String kg, String ms) {
+        return quality + " · +" + amount + " Pilchard" + tail + " · " + kg + " kg (" + ms + " ms)";
+    }
+
+    @Test
+    void readsFishingQuests() {
+        assertEquals(QuestLiveTracker.Kind.CATCH, QuestLiveTracker.kind("Catch 500 Pilchards"));
+        assertEquals(QuestLiveTracker.Kind.CATCH, QuestLiveTracker.kind("Fish 1,000 Bluefin"));
+        assertEquals(QuestLiveTracker.Kind.CATCH, QuestLiveTracker.kind("Reel 250 Sea Bass"));
+
+        assertEquals("pilchard", QuestLiveTracker.target("Catch 500 Pilchards"));
+        assertEquals("seabass", QuestLiveTracker.target("Reel 250 Sea Bass"));
+        assertEquals("bluefin", QuestLiveTracker.target("Fish 1,000 Bluefin"));
+        assertEquals("mackerel", QuestLiveTracker.target("Catch 2.5k Mackerel"));
+    }
+
+    @Test
+    void everyCatchLineCountsWhatItSays() {
+        scan("Catch 500 Pilchard", "0", "500");
+        tracker.onActionBar(catchLine("GOOD", "1", "", "0.07", "+93"), now);
+        assertEquals(1d, tracker.live("Catch 500 Pilchard"));
+
+        run(2_000L, null);
+        tracker.onActionBar(catchLine("GREAT", "2", "", "0.11", "+40"), now);
+        assertEquals(3d, tracker.live("Catch 500 Pilchard"));
+    }
+
+    @Test
+    void aHotspotTagIsNotPartOfTheFishName() {
+        scan("Catch 500 Pilchard", "0", "500");
+        tracker.onActionBar(catchLine("PERFECT", "5", " HOTSPOT x2", "0.17", "-21"), now);
+        assertEquals(5d, tracker.live("Catch 500 Pilchard"));
+    }
+
+    @Test
+    void theWeightAndTimingAreNotCounted() {
+        scan("Catch 500 Pilchard", "0", "500");
+        // 0.07 kg has no +, and the +93 in brackets is the timing, not another fish
+        tracker.onActionBar(catchLine("GOOD", "1", "", "0.07", "+93"), now);
+        assertEquals(1d, tracker.live("Catch 500 Pilchard"));
+    }
+
+    @Test
+    void theSameCatchLineTwiceCountsOnce() {
+        scan("Catch 500 Pilchard", "0", "500");
+        String line = catchLine("GOOD", "1", "", "0.07", "+93");
+        tracker.onActionBar(line, now);
+        // whatever the server does about redrawing it, one fish was landed
+        run(3_000L, line);
+        assertEquals(1d, tracker.live("Catch 500 Pilchard"));
+    }
+
+    @Test
+    void aFishNoQuestWantsIsIgnored() {
+        scan("Catch 500 Pilchard", "0", "500");
+        tracker.onActionBar("GOOD · +1 Mackerel · 0.07 kg (+93 ms)", now);
+        run(1_000L, null);
+        tracker.onActionBar("PERFECT · +5 Mackerel · 0.21 kg (-8 ms)", now);
+        assertEquals(0d, tracker.live("Catch 500 Pilchard"));
+        assertFalse(tracker.isActive("Catch 500 Pilchard", now));
+    }
+
+    @Test
+    void aFishingQuestIgnoresMpsAndBps() {
+        scan("Catch 500 Pilchard", "0", "500");
+        tracker.onActionBar(catchLine("GOOD", "1", "", "0.07", "+93"), now);
+        run(10_000L, "50 MPS  50 BPS");
+        assertEquals(1d, tracker.live("Catch 500 Pilchard"));
+    }
+
+    @Test
+    void farmQuestsAreUntouchedByCatchLines() {
+        scan("Farm 5,000 Wheat", "0", "5,000");
+        tracker.onActionBar("GOOD · +1 Wheat · 0.07 kg (+93 ms)", now);
+        run(1_000L, null);
+        tracker.onActionBar("GOOD · +9 Wheat · 0.07 kg (+12 ms)", now);
+        assertEquals(0d, tracker.live("Farm 5,000 Wheat"));
+    }
+
+    @Test
+    void aFishingQuestShowsAnEtaFromTheCatchesCounted() {
+        scan("Catch 500 Pilchard", "0", "500");
+        // a fish every two seconds for a couple of minutes
+        for (int i = 1; i <= 60; i++) {
+            run(2_000L, null);
+            tracker.onActionBar(catchLine("GOOD", "5", "", "0.0" + (i % 9 + 1), "+" + i), now);
+        }
+        assertEquals(300d, tracker.live("Catch 500 Pilchard"));
+        assertTrue(tracker.isActive("Catch 500 Pilchard", now));
+        long eta = tracker.etaSeconds("Catch 500 Pilchard", now);
+        // 200 to go at about two and a half a second
+        assertTrue(eta > 40L && eta < 120L, "eta was " + eta);
+    }
+
+    @Test
+    void aFishingQuestGoesQuietWhenTheCatchesStop() {
+        scan("Catch 500 Pilchard", "0", "500");
+        for (int i = 1; i <= 5; i++) {
+            run(2_000L, null);
+            tracker.onActionBar(catchLine("GOOD", "1", "", "0.07", "+" + i), now);
+        }
+        assertTrue(tracker.isActive("Catch 500 Pilchard", now));
+        run(QuestLiveTracker.CATCH_WINDOW_MS + 5_000L, null);
+        assertFalse(tracker.isActive("Catch 500 Pilchard", now));
+        assertEquals(-1L, tracker.etaSeconds("Catch 500 Pilchard", now));
+        assertEquals(5d, tracker.live("Catch 500 Pilchard"));
+    }
+
+    @Test
+    void aFishingQuestStopsAtTheGoal() {
+        scan("Catch 500 Pilchard", "495", "500");
+        tracker.onActionBar(catchLine("PERFECT", "50", " HOTSPOT x2", "1.4", "-3"), now);
+        assertEquals(500d, tracker.live("Catch 500 Pilchard"));
+    }
+
+    @Test
+    void catchesCountTowardTheGuildWorkTotal() {
+        scan("Catch 500 Pilchard", "0", "500");
+        tracker.onActionBar(catchLine("GOOD", "1", "", "0.07", "+93"), now);
+        run(1_000L, null);
+        tracker.onActionBar(catchLine("PERFECT", "5", " HOTSPOT x2", "0.17", "-21"), now);
+        assertEquals(6d, tracker.consumeContributed());
+        assertEquals(0d, tracker.consumeContributed());
+    }
+
+    @Test
+    void aRescanIsTheTruthAgain() {
+        scan("Catch 500 Pilchard", "0", "500");
+        tracker.onActionBar(catchLine("GOOD", "1", "", "0.07", "+93"), now);
+        assertEquals(1d, tracker.live("Catch 500 Pilchard"));
+
+        // /gq came back with the real number, and counting carries on from there
+        scan("Catch 500 Pilchard", "40", "500");
+        assertEquals(40d, tracker.live("Catch 500 Pilchard"));
+        run(1_000L, null);
+        tracker.onActionBar(catchLine("GOOD", "2", "", "0.09", "+11"), now);
+        assertEquals(42d, tracker.live("Catch 500 Pilchard"));
+    }
 }

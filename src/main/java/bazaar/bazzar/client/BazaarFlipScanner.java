@@ -254,6 +254,15 @@ final class BazaarFlipScanner {
         return candidates;
     }
 
+    // a category button carries no buy or sell price, which is what tells it apart from an item
+    static boolean hasPrices(Minecraft client, ItemStack stack) {
+        if (client == null || stack == null || stack.isEmpty()) {
+            return false;
+        }
+        PriceInfo info = PriceInfo.fromStack(client, stack);
+        return info.buy != null || info.sell != null;
+    }
+
     static FlipCandidate fromStack(Minecraft client, ItemStack stack) {
         if (client == null || stack == null || stack.isEmpty()) {
             return null;

@@ -84,7 +84,7 @@ final class CelestialMarket {
     private record Order(int id, String buyer, double price, String currency) {
     }
 
-    private record Payment(String sender, String currency, double amount, long atMs) {
+    record Payment(String sender, String currency, double amount, long atMs) {
     }
 
     private record PendingBuy(int orderId, String seller, long paidAtMs) {
@@ -108,6 +108,7 @@ final class CelestialMarket {
     private static long lastPaymentPollMs = 0L;
     private static int lastPromptedRequest = -1;
     private static CelestialPanel.View openTabNextTick = null;
+    private static boolean tutorialNextTick = false;
 
     private CelestialMarket() {
     }
@@ -139,6 +140,12 @@ final class CelestialMarket {
                                         return builder.buildFuture();
                                     })
                                     .executes(CelestialMarket::runSetPrice))));
+            dispatcher.register(literal("cbtutorial")
+                    .requires(source -> !BazzarGuard.isBlocked())
+                    .executes(ctx -> {
+                        tutorialNextTick = true;
+                        return 1;
+                    }));
             dispatcher.register(literal("cbpool")
                     .requires(source -> !BazzarGuard.isBlocked())
                     .then(literal("on").executes(ctx -> {
@@ -217,14 +224,7 @@ final class CelestialMarket {
                         seller.get("backend").getAsString(), readyAt <= 0L ? 0L : readyAt + offset,
                         seller.get("online").getAsBoolean()));
             }
-            // listings with stock first, then whoever comes off cooldown soonest
-            fresh.sort((a, b) -> {
-                if (a.ready() != b.ready()) {
-                    return a.ready() ? -1 : 1;
-                }
-                return Long.compare(a.readyAtLocal(), b.readyAtLocal());
-            });
-            listings = fresh;
+            listings = sorted(fresh);
             poolReady = json.has("pool") ? json.get("pool").getAsInt() : 0;
             listingsFetchedMs = System.currentTimeMillis();
         });
@@ -249,6 +249,13 @@ final class CelestialMarket {
     static double balance(Minecraft client, String currency) {
         for (ScoreboardReader.Line line : ScoreboardReader.readSidebar(client)) {
             String text = line.normalizedText();
+            // the sidebar often shows the currency's icon instead of writing its name out
+            if (currency.equals(CurrencyIcons.currencyForSprite(line.rawText()))) {
+                double amount = SbText.firstAmount(text);
+                if (amount >= 0d) {
+                    return amount;
+                }
+            }
             switch (currency) {
                 case "tokens" -> {
                     if (text.contains("purse")) {
@@ -286,17 +293,36 @@ final class CelestialMarket {
         return have < 0d || have >= price;
     }
 
+    // listings with stock first, then whoever comes off cooldown soonest
+    static List<Listing> sorted(List<Listing> fresh) {
+        List<Listing> ordered = new ArrayList<>(fresh);
+        ordered.sort((a, b) -> {
+            if (a.ready() != b.ready()) {
+                return a.ready() ? -1 : 1;
+            }
+            return Long.compare(a.readyAtLocal(), b.readyAtLocal());
+        });
+        return ordered;
+    }
+
     static boolean isOwnListing(Minecraft client, Listing listing) {
-        String group = groupName(client);
+        return ownedBy(groupName(client), listing);
+    }
+
+    static boolean ownedBy(String group, Listing listing) {
         return group != null && group.equalsIgnoreCase(listing.owner());
     }
 
     // the cheapest listing with stock in the quick-buy currency, for the HUD and the buy hotkey
     static Listing cheapest(Minecraft client, String currency) {
+        return cheapest(listings, currency, groupName(client));
+    }
+
+    static Listing cheapest(List<Listing> from, String currency, String group) {
         Listing best = null;
-        for (Listing listing : listings) {
+        for (Listing listing : from) {
             Double price = listing.price(currency);
-            if (price == null || !listing.ready() || isOwnListing(client, listing)) {
+            if (price == null || !listing.ready() || ownedBy(group, listing)) {
                 continue;
             }
             if (best == null || price < best.price(currency)) {
@@ -304,6 +330,42 @@ final class CelestialMarket {
             }
         }
         return best;
+    }
+
+    // displayed amounts are rounded (1.00M), so a payment a hair under the exact price still counts
+    static boolean covers(double paid, double price) {
+        return paid >= price * 0.995d;
+    }
+
+    // the server's wording when a pay command bounces for want of money
+    static boolean payFailed(String text) {
+        return text != null && PAY_FAILED.matcher(text).find();
+    }
+
+    // "RuinedBySeagulls sent you 1.00M Tokens" and the other wordings a transfer shows up as
+    static Payment parsePayment(String text, String self, long atMs) {
+        if (text == null || self == null) {
+            return null;
+        }
+        for (int i = 0; i < PAYMENT_PATTERNS.length; i++) {
+            Matcher matcher = PAYMENT_PATTERNS[i].matcher(text);
+            if (!matcher.find()) {
+                continue;
+            }
+            String sender = i == 2 ? matcher.group(3) : matcher.group(1);
+            String amountRaw = i == 2 ? matcher.group(1) : matcher.group(2);
+            String currency = currencyOf(i == 2 ? matcher.group(2) : matcher.group(3));
+            // the second wording is a public "X sent N to Y" line, which only counts when Y is us
+            if (i == 1 && !matcher.group(4).equalsIgnoreCase(self)) {
+                return null;
+            }
+            Double amount = ShardPayoutController.parseCompactNumber(amountRaw);
+            if (amount == null || currency == null || sender.equalsIgnoreCase(self)) {
+                return null;
+            }
+            return new Payment(sender, currency, amount, atMs);
+        }
+        return null;
     }
 
     static void buyCheapest(Minecraft client) {
@@ -474,8 +536,17 @@ final class CelestialMarket {
             task.run();
         }
         if (openTabNextTick != null && McCompat.screen(client) == null) {
-            McCompat.setScreen(client, BazaarTrackerScreen.openCelestial(openTabNextTick));
+            CelestialPanel.View tab = openTabNextTick;
             openTabNextTick = null;
+            McCompat.setScreen(client, CelestialTutorial.seen()
+                    ? BazaarTrackerScreen.openCelestial(tab)
+                    : new CelestialTutorialScreen(tab));
+        }
+        if (tutorialNextTick) {
+            tutorialNextTick = false;
+            if (McCompat.screen(client) == null) {
+                McCompat.setScreen(client, new CelestialTutorialScreen(null));
+            }
         }
         long now = System.currentTimeMillis();
         recentPayments.removeIf(payment -> now - payment.atMs() > PAYMENT_MEMORY_MS);
@@ -589,7 +660,7 @@ final class CelestialMarket {
         CurrencyIcons.learn(line);
         String text = SbText.stripFormattingCodes(SbText.stripSprites(line)).trim();
         PendingBuy buying = pendingBuy;
-        if (buying != null && !text.contains("»") && PAY_FAILED.matcher(text).find()) {
+        if (buying != null && !text.contains("»") && payFailed(text)) {
             // the pay command bounced, so free the seller and tell the buyer
             pendingBuy = null;
             String name = selfName(client);
@@ -606,28 +677,13 @@ final class CelestialMarket {
         if (!BazzarConfig.load().cbSellEnabled) {
             return;
         }
-        String self = client.player.getName().getString();
-        for (int i = 0; i < PAYMENT_PATTERNS.length; i++) {
-            Matcher matcher = PAYMENT_PATTERNS[i].matcher(text);
-            if (!matcher.find()) {
-                continue;
-            }
-            String sender = i == 2 ? matcher.group(3) : matcher.group(1);
-            String amountRaw = i == 2 ? matcher.group(1) : matcher.group(2);
-            String currency = currencyOf(i == 2 ? matcher.group(2) : matcher.group(3));
-            if (i == 1 && !matcher.group(4).equalsIgnoreCase(self)) {
-                return;
-            }
-            Double amount = ShardPayoutController.parseCompactNumber(amountRaw);
-            if (amount == null || sender.equalsIgnoreCase(self)) {
-                return;
-            }
-            Payment payment = new Payment(sender, currency, amount, System.currentTimeMillis());
-            if (!applyPayment(client, payment)) {
-                recentPayments.addLast(payment);
-                pollForOrder(payment);
-            }
+        Payment payment = parsePayment(text, client.player.getName().getString(), System.currentTimeMillis());
+        if (payment == null) {
             return;
+        }
+        if (!applyPayment(client, payment)) {
+            recentPayments.addLast(payment);
+            pollForOrder(payment);
         }
     }
 
@@ -647,7 +703,7 @@ final class CelestialMarket {
         }
         // the order often lands a moment after the payment, so anything covering the listed price counts too
         Double price = state.cbPrices == null ? null : state.cbPrices.get(currency);
-        return price != null && price > 0d && amount >= price * 0.995d;
+        return price != null && price > 0d && covers(amount, price);
     }
 
     // the payment was taken by a Celestial Boost order, so auto pay should leave it alone
@@ -684,8 +740,7 @@ final class CelestialMarket {
             double paid = paidSoFar.merge(order.id(), payment.amount(), Double::sum);
             recentPayments.remove(payment);
             claimedPayments.addLast(payment);
-            // displayed amounts are rounded (1.00M), so allow a hair under the exact price
-            if (paid < order.price() * 0.995d) {
+            if (!covers(paid, order.price())) {
                 status(client, order.buyer() + " paid " + SbText.formatCompact(paid) + " of "
                         + SbText.formatCompact(order.price()) + " " + order.currency() + ".");
                 return true;
@@ -722,7 +777,7 @@ final class CelestialMarket {
         return 1;
     }
 
-    private static String payCommand(String currency) {
+    static String payCommand(String currency) {
         return switch (currency) {
             case "gems" -> "gempay";
             case "cobble" -> "cobblepay";
@@ -732,7 +787,7 @@ final class CelestialMarket {
     }
 
     // same amount formats the shard pay and payout features already send
-    private static String payAmount(String currency, double amount) {
+    static String payAmount(String currency, double amount) {
         return switch (currency) {
             case "gems", "cobble" -> ShardPayController.formatWhole(amount);
             case "tokens" -> ShardPayoutController.formatPayAmount(amount);

@@ -13,7 +13,12 @@ import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Scoreboard;
 
 final class ScoreboardReader {
-    record Line(String normalizedText, int score) {
+    // rawText still has the sprite tags in it, which is the only clue on a line that shows an
+    // icon where the currency's name would be
+    record Line(String normalizedText, int score, String rawText) {
+        Line(String normalizedText, int score) {
+            this(normalizedText, score, "");
+        }
     }
 
     private ScoreboardReader() {
@@ -47,7 +52,8 @@ final class ScoreboardReader {
             PlayerTeam ownerTeam = scoreboard.getPlayersTeam(entry.owner());
             String nameText = PlayerTeam.formatNameForTeam(ownerTeam, entry.ownerName()).getString();
             String valueText = entry.formatValue(numberFormat).getString();
-            lines.add(new Line(SbText.normalizeText(SbText.stripSprites(nameText + " " + valueText)), entry.value()));
+            String raw = nameText + " " + valueText;
+            lines.add(new Line(SbText.normalizeText(SbText.stripSprites(raw)), entry.value(), raw));
         }
         return lines;
     }

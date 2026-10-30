@@ -128,7 +128,7 @@ final class AltCommandController {
         if (command.isBlank()) {
             return;
         }
-        client.player.connection.sendCommand(command);
+        CommandSender.send(client, command);
         lastReceivedCommand = command;
         lastReceivedMs = System.currentTimeMillis();
         String ackName = ShardPayController.normalizeName(client.player.getName().getString());

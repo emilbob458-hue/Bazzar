@@ -25,7 +25,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.BossHealthOverlay;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.network.protocol.game.ServerboundChatCommandPacket;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.BossEvent;
@@ -232,7 +231,7 @@ public final class CookieController {
     }
 
     private static void sendServerCommand(Minecraft client, String command) {
-        client.player.connection.send(new ServerboundChatCommandPacket(command));
+        CommandSender.send(client, command);
     }
 
     public static void onTitle(String text) {
@@ -455,7 +454,7 @@ public final class CookieController {
             if (state.cookieAutoClaimAllOnGift && COOKIE_GIFT_PATTERN.matcher(message).find()) {
                 long now = System.currentTimeMillis();
                 if (now - lastClaimAllMs >= CLAIMALL_COOLDOWN_MS) {
-                    client.player.connection.sendCommand("claimall");
+                    CommandSender.send(client, "claimall");
                     lastClaimAllMs = now;
                 }
             }

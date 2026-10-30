@@ -244,7 +244,7 @@ final class ShardPayController {
         }
         String command = payQueue.pollFirst();
         if (command != null && !command.isBlank()) {
-            client.player.connection.sendCommand(command);
+            CommandSender.send(client, command);
         }
         payQueueTicks = PAY_GAP_TICKS + java.util.concurrent.ThreadLocalRandom.current().nextInt(PAY_GAP_JITTER_TICKS + 1);
     }

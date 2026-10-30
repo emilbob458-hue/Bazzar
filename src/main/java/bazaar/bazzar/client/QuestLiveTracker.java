@@ -9,23 +9,33 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 // guild quest progress between /gq scans: "Kill" quests count up from MPS, "Farm" quests from BPS,
-// or from the kills and breaks this mod counts itself when the action bar shows no rate.
+// or from the kills and breaks this mod counts itself when the action bar shows no rate. Fishing has
+// no rate on the action bar, so "Catch" quests count off the running total in brackets instead.
 // No Minecraft classes in here, so the sims in src/test can drive it.
 final class QuestLiveTracker {
     enum Kind {
         KILL,
-        FARM
+        FARM,
+        CATCH
     }
 
     static final long RATE_FRESH_MS = 1_500L;
     static final long MAX_STEP_MS = 250L;
     static final long ACTIVE_MS = 10_000L;
+    // fishing is slow next to farming: two catches this far apart still measure as a rate, and a
+    // quest stays live this long after the last one so the ETA doesn't blink out between bites
+    static final long CATCH_WINDOW_MS = 30_000L;
 
     private static final Pattern QUEST_PATTERN = Pattern.compile(
-            "^(kill|slay|farm|harvest|break|mine)\\s+(?:[0-9][0-9.,]*\\s*[kmb]?\\s+)?(.+)$");
+            "^(kill|slay|farm|harvest|break|mine|catch|fish|reel)\\s+(?:[0-9][0-9.,]*\\s*[kmb]?\\s+)?(.+)$");
     private static final Pattern MPS_PATTERN = rate("MPS");
     private static final Pattern BPS_PATTERN = rate("BPS");
     private static final Pattern GAIN_PATTERN = Pattern.compile("\\+[0-9][0-9.,]*[a-zA-Z]?\\s+([A-Za-z][A-Za-z' ]*?)\\s*\\(");
+    // "GOOD · +1 Pilchard · 0.07 kg (+93 ms)", "PERFECT · +5 Pilchard HOTSPOT x2 · 0.17 kg (-21 ms)":
+    // one line per fish landed, so the +N on it is the catch. Only the first +N counts, the one in
+    // brackets at the end is the timing.
+    private static final Pattern CATCH_PATTERN = Pattern.compile(
+            "\\+([0-9][0-9.,]*\\s*[kmb]?)\\s+([A-Za-z][A-Za-z' ]*)");
     // block names carry words the quest leaves out: "Wheat Crops", "Nether Quartz Ore", "Raw Gold Block"
     private static final String[] BLOCK_WORDS = {"crops", "crop", "ore", "block", "stem", "bush", "plant", "beans", "bean"};
 
@@ -54,8 +64,11 @@ final class QuestLiveTracker {
     private final Map<Kind, String> lastName = new HashMap<>();
     private final Map<Kind, Long> lastNameMs = new HashMap<>();
     private final Map<Kind, Long> lastSureMs = new HashMap<>();
+    private String lastCatchLine = "";
     private long lastStepMs = 0L;
     private double contributed = 0d;
+    private long catchWindowMs = 0L;
+    private double catchWindowGained = 0d;
 
     // a fresh /gq read or guild share is the truth again, so live counting starts over from it
     void onScan(List<String[]> scanned) {
@@ -80,6 +93,73 @@ final class QuestLiveTracker {
         readRate(Kind.FARM, BPS_PATTERN.matcher(line), now);
         for (String gain : gains(line)) {
             onSeen(Kind.FARM, gain, now);
+        }
+        onCatch(line, now);
+    }
+
+    // a landed fish: counted straight off the line, since the server writes one per catch
+    private void onCatch(String line, long now) {
+        Matcher matcher = CATCH_PATTERN.matcher(line);
+        if (!matcher.find()) {
+            return;
+        }
+        String target = catchTarget(matcher.group(2));
+        if (target == null) {
+            return;
+        }
+        // the very same line again is the server redrawing it, not a second fish. The timing in
+        // brackets differs catch to catch, so two real ones are never written identically.
+        if (line.equals(lastCatchLine)) {
+            return;
+        }
+        lastCatchLine = line;
+        double caught = amount(matcher.group(1));
+        if (caught <= 0d) {
+            return;
+        }
+        lastName.put(Kind.CATCH, target);
+        lastNameMs.put(Kind.CATCH, now);
+        for (Quest quest : matching(Kind.CATCH, target)) {
+            add(quest, caught);
+        }
+        measureCatchRate(caught, now);
+    }
+
+    // the name carries the server's own tags after it ("Pilchard HOTSPOT x2"), so the longest
+    // leading words a quest actually wants are the fish
+    private String catchTarget(String name) {
+        String cleaned = clean(name).trim();
+        while (!cleaned.isEmpty()) {
+            if (!matching(Kind.CATCH, cleaned).isEmpty()) {
+                return cleaned;
+            }
+            int cut = cleaned.lastIndexOf(' ');
+            if (cut < 0) {
+                return null;
+            }
+            cleaned = cleaned.substring(0, cut);
+        }
+        return null;
+    }
+
+    // the server shows no catches per second, so the ETA runs off what we counted over the last window
+    private void measureCatchRate(double gained, long now) {
+        long span = now - catchWindowMs;
+        if (catchWindowMs == 0L || span <= 0L || span > CATCH_WINDOW_MS) {
+            // nothing recent to measure against, so this catch only opens the window
+            catchWindowMs = now;
+            catchWindowGained = 0d;
+            return;
+        }
+        catchWindowGained += gained;
+        if (span >= 1_000L) {
+            // eased towards the new reading so one lucky or slow bite doesn't swing the ETA
+            double perSecond = catchWindowGained * 1000d / span;
+            Double previous = rate.get(Kind.CATCH);
+            rate.put(Kind.CATCH, previous == null ? perSecond : previous * 0.7d + perSecond * 0.3d);
+            rateSeenMs.put(Kind.CATCH, now);
+            catchWindowMs = now;
+            catchWindowGained = 0d;
         }
     }
 
@@ -143,7 +223,8 @@ final class QuestLiveTracker {
         }
         long step = Math.min(MAX_STEP_MS, now - last);
         for (Kind kind : Kind.values()) {
-            if (!rateFresh(kind, now)) {
+            // catches are already counted exactly off the action bar total, so no rate is added here
+            if (kind == Kind.CATCH || !rateFresh(kind, now)) {
                 continue;
             }
             for (Quest quest : active(kind, now)) {
@@ -198,7 +279,7 @@ final class QuestLiveTracker {
 
     private List<Quest> active(Kind kind, long now) {
         String name = lastName.get(kind);
-        if (name == null || now - lastNameMs.getOrDefault(kind, 0L) > ACTIVE_MS) {
+        if (name == null || now - lastNameMs.getOrDefault(kind, 0L) > activeMs(kind)) {
             return List.of();
         }
         return matching(kind, name);
@@ -238,7 +319,16 @@ final class QuestLiveTracker {
 
     private boolean rateFresh(Kind kind, long now) {
         Long seen = rateSeenMs.get(kind);
-        return seen != null && now - seen <= RATE_FRESH_MS && now >= seen;
+        return seen != null && now - seen <= rateFreshMs(kind) && now >= seen;
+    }
+
+    // MPS and BPS are redrawn every second so they go stale fast, but catches are far apart
+    private static long rateFreshMs(Kind kind) {
+        return kind == Kind.CATCH ? CATCH_WINDOW_MS : RATE_FRESH_MS;
+    }
+
+    private static long activeMs(Kind kind) {
+        return kind == Kind.CATCH ? CATCH_WINDOW_MS : ACTIVE_MS;
     }
 
     private void readRate(Kind kind, Matcher matcher, long now) {
@@ -265,18 +355,23 @@ final class QuestLiveTracker {
             return null;
         }
         String verb = matcher.group(1);
-        return verb.equals("kill") || verb.equals("slay") ? Kind.KILL : Kind.FARM;
+        if (verb.equals("kill") || verb.equals("slay")) {
+            return Kind.KILL;
+        }
+        if (verb.equals("catch") || verb.equals("fish") || verb.equals("reel")) {
+            return Kind.CATCH;
+        }
+        return Kind.FARM;
     }
 
-    // "Kill 1,000 Bats" -> "bat", "Farm 5k Nether Warts" -> "netherwart"
+    // "Kill 1,000 Bats" -> "bat", "Farm 5k Nether Warts" -> "netherwart", "Catch 500 Pilchards" -> "pilchard"
     static String target(String questName) {
         Matcher matcher = QUEST_PATTERN.matcher(clean(questName));
         if (!matcher.find()) {
             return "";
         }
-        return matcher.group(1).equals("kill") || matcher.group(1).equals("slay")
-                ? nameKey(matcher.group(2))
-                : blockKey(matcher.group(2));
+        // only farmed names carry block words to strip; mobs and fish are named as they are
+        return kind(questName) == Kind.FARM ? blockKey(matcher.group(2)) : nameKey(matcher.group(2));
     }
 
     static String nameKey(String name) {

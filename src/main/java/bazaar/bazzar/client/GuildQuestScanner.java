@@ -29,11 +29,18 @@ final class GuildQuestScanner {
     private static final String QUEST_COMMAND = "gq";
     private static final int PAGE_DELAY_TICKS = 4;
     private static final int TIMEOUT_TICKS = 140;
-    private static final int DEFAULT_AUTO_INTERVAL_SECONDS = 180;
-    private static final int MIN_AUTO_INTERVAL_SECONDS = 15;
-    private static final int MAX_AUTO_INTERVAL_SECONDS = 3600;
     private static final long REFRESH_GRACE_MS = 3_000L;
     private static final long AUTO_RETRY_MS = 60_000L;
+    // the /gq timer counts down in whole minutes, so the stored time can be up to a minute early and the
+    // first scan after it runs out can still land on the old quests; retry on this gap to catch the rollover
+    private static final long REFRESH_RETRY_MS = 15_000L;
+    // two quick tries, then back off, so a menu with no timer line in it can't make the scan loop
+    private static final int MAX_QUICK_RETRIES = 3;
+    // with a guild set an AFK member scans for everyone, but once the quests have been due this long with
+    // nothing shared, scan here rather than sitting on stale quests for the whole fallback window
+    private static final long SHARE_WAIT_MS = 90_000L;
+    // a refresh time this far from the old one is a new set of quests, not the same one counted down
+    private static final long NEW_CYCLE_MS = 120_000L;
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("progress\\s*:\\s*([^\\s]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern DURATION_PATTERN = Pattern.compile("(\\d+)\\s*([hms])", Pattern.CASE_INSENSITIVE);
     private static final List<QuestEntry> lastEntries = new ArrayList<>();
@@ -46,9 +53,13 @@ final class GuildQuestScanner {
     private static int timeoutTicks = 0;
     private static boolean pendingOpen = false;
     private static boolean autoScanEnabled = false;
-    private static int autoScanIntervalSeconds = DEFAULT_AUTO_INTERVAL_SECONDS;
     private static long lastAutoTriggerMs = 0L;
+    private static long dueSinceMs = 0L;
+    private static boolean timerCaptured = false;
+    private static int blindScans = 0;
     private static boolean settingsDirty = false;
+    private static boolean holdOpen = false;
+    private static boolean heldOpen = false;
 
     private GuildQuestScanner() {
     }
@@ -57,17 +68,44 @@ final class GuildQuestScanner {
         start(client);
     }
 
+    // while the quest key is held the menu stays up, so /gq can be read without it snapping shut
+    static void setHoldOpen(boolean held) {
+        holdOpen = held;
+    }
+
+    // what to do with the /gq menu once the scan has read it
+    enum MenuAction {
+        KEEP_OPEN,
+        READ_AGAIN,
+        CLOSE
+    }
+
+    static MenuAction menuAction(boolean keyHeld, boolean menuOpen, boolean wasHeld) {
+        if (keyHeld && menuOpen) {
+            return MenuAction.KEEP_OPEN;
+        }
+        // a menu that was held open may have had a quest claimed in it, so it is worth one more read
+        return wasHeld && menuOpen ? MenuAction.READ_AGAIN : MenuAction.CLOSE;
+    }
+
     static void triggerAuto(Minecraft client) {
         if (!autoScanEnabled) {
             return;
         }
-        // with a guild set, an AFK member scans for everyone; only fall back if nobody has for a while
-        if (GuildShare.isActive() && !GuildShare.fallbackDue()) {
+        long now = System.currentTimeMillis();
+        if (questsRefreshAtMs > 0L && now < questsRefreshAtMs + REFRESH_GRACE_MS) {
+            dueSinceMs = 0L;
             return;
         }
-        long now = System.currentTimeMillis();
-        boolean due = questsRefreshAtMs <= 0L || now >= questsRefreshAtMs + REFRESH_GRACE_MS;
-        if (!due || now - lastAutoTriggerMs < AUTO_RETRY_MS) {
+        if (dueSinceMs == 0L) {
+            dueSinceMs = now;
+        }
+        // with a guild set, an AFK member scans for everyone; scan here once their copy clearly isn't coming
+        if (GuildShare.isActive() && !GuildShare.fallbackDue() && now - dueSinceMs < SHARE_WAIT_MS) {
+            return;
+        }
+        long retryGap = blindScans >= MAX_QUICK_RETRIES ? AUTO_RETRY_MS : REFRESH_RETRY_MS;
+        if (now - lastAutoTriggerMs < retryGap) {
             return;
         }
         if (start(client)) {
@@ -93,7 +131,6 @@ final class GuildQuestScanner {
 
     static void applyConfig(BazzarConfig.State state) {
         autoScanEnabled = state != null && state.guildQuestAutoScanEnabled;
-        autoScanIntervalSeconds = clampIntervalSeconds(state != null ? state.guildQuestAutoScanIntervalSeconds : DEFAULT_AUTO_INTERVAL_SECONDS);
         settingsDirty = false;
         lastAutoTriggerMs = 0L;
     }
@@ -103,7 +140,6 @@ final class GuildQuestScanner {
             return;
         }
         state.guildQuestAutoScanEnabled = autoScanEnabled;
-        state.guildQuestAutoScanIntervalSeconds = autoScanIntervalSeconds;
     }
 
     static boolean consumeSettingsDirty() {
@@ -125,10 +161,6 @@ final class GuildQuestScanner {
         autoScanEnabled = enabled;
         settingsDirty = true;
         lastAutoTriggerMs = 0L;
-    }
-
-    private static int clampIntervalSeconds(int seconds) {
-        return Math.max(MIN_AUTO_INTERVAL_SECONDS, Math.min(MAX_AUTO_INTERVAL_SECONDS, seconds));
     }
 
     private static boolean start(Minecraft client) {
@@ -157,7 +189,7 @@ final class GuildQuestScanner {
         }
 
         timeoutTicks++;
-        if (timeoutTicks > TIMEOUT_TICKS) {
+        if (timeoutTicks > TIMEOUT_TICKS && !(state == State.CLOSE && holdOpen)) {
             reset();
             return;
         }
@@ -181,15 +213,33 @@ final class GuildQuestScanner {
                 }
             }
             case SCAN -> {
+                timerCaptured = false;
                 cacheEntries(collectQuestEntries(client));
+                // a scan that read a fresh timer settles the cycle; one that didn't gets a few quick retries
+                blindScans = timerCaptured ? 0 : blindScans + 1;
                 GuildShare.onScanned(lastEntries, questsRefreshAtMs);
                 state = State.CLOSE;
             }
             case CLOSE -> {
-                if (McCompat.screen(client) != null) {
-                    McCompat.setScreen(client, null);
+                boolean menuOpen = isContainerOpen(McCompat.screen(client));
+                switch (menuAction(holdOpen, menuOpen, heldOpen)) {
+                    case KEEP_OPEN -> {
+                        heldOpen = true;
+                        timeoutTicks = 0;
+                    }
+                    case READ_AGAIN -> {
+                        cacheEntries(collectQuestEntries(client));
+                        GuildShare.onScanned(lastEntries, questsRefreshAtMs);
+                        McCompat.setScreen(client, null);
+                        state = State.REPORT;
+                    }
+                    case CLOSE -> {
+                        if (McCompat.screen(client) != null) {
+                            McCompat.setScreen(client, null);
+                        }
+                        state = State.REPORT;
+                    }
                 }
-                state = State.REPORT;
             }
             case REPORT -> {
                 reset();
@@ -233,18 +283,17 @@ final class GuildQuestScanner {
 
     // quests shared by a guild member's scan; quests that finished since then stay done
     static void applyShared(List<String[]> quests, long refreshAtMs) {
+        // the cycle is settled first, so a new one has already dropped the old "complete" names
+        if (refreshAtMs > 0L) {
+            setRefreshAt(refreshAtMs);
+            blindScans = 0;
+        }
         lastEntries.clear();
         for (String[] quest : quests) {
             boolean done = completedNames.contains(normalize(quest[0]));
             lastEntries.add(new QuestEntry(quest[0], done ? quest[2] : quest[1], quest[2], done));
         }
         restartLive();
-        if (refreshAtMs > 0L) {
-            if (refreshAtMs != questsRefreshAtMs) {
-                completedNames.clear();
-            }
-            questsRefreshAtMs = refreshAtMs;
-        }
     }
 
     static List<QuestEntry> getOpenEntries() {
@@ -363,7 +412,8 @@ final class GuildQuestScanner {
                     durationMs = parseDurationMs(lines.get(i + 1));
                 }
                 if (durationMs > 0L) {
-                    questsRefreshAtMs = System.currentTimeMillis() + durationMs;
+                    setRefreshAt(System.currentTimeMillis() + durationMs);
+                    timerCaptured = true;
                 }
                 return;
             }
@@ -371,7 +421,15 @@ final class GuildQuestScanner {
         }
     }
 
-    private static long parseDurationMs(String line) {
+    // a new cycle means the quests that chat called complete belong to the old set, so forget them
+    private static void setRefreshAt(long refreshAtMs) {
+        if (Math.abs(refreshAtMs - questsRefreshAtMs) > NEW_CYCLE_MS) {
+            completedNames.clear();
+        }
+        questsRefreshAtMs = refreshAtMs;
+    }
+
+    static long parseDurationMs(String line) {
         long totalSeconds = 0L;
         Matcher matcher = DURATION_PATTERN.matcher(line);
         while (matcher.find()) {
@@ -552,6 +610,7 @@ final class GuildQuestScanner {
         waitTicks = 0;
         timeoutTicks = 0;
         pendingOpen = false;
+        heldOpen = false;
     }
 
     static final class QuestEntry {

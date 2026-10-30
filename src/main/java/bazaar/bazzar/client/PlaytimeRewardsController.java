@@ -66,7 +66,7 @@ final class PlaytimeRewardsController {
         autoOpened = true;
         autoOpenedAtMs = now;
         idleScans = 0;
-        client.player.connection.sendCommand("playtimerewards");
+        CommandSender.send(client, "playtimerewards");
     }
 
     static void tick(Minecraft client) {

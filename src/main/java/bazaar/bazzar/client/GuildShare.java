@@ -129,6 +129,14 @@ final class GuildShare {
         get("/gq/get?guild=" + URLEncoder.encode(guild, StandardCharsets.UTF_8), json -> onShared(client, guild, json));
     }
 
+    // the next poll normally sits a few minutes out, but never past the moment the quests refresh:
+    // that's when a fresh copy is worth having, and when somebody has to notice nobody scanned
+    private static void pollAgain(long now, long refreshAtLocal) {
+        long next = now + POLL_MS;
+        long atRefresh = refreshAtLocal + STALE_GRACE_MS;
+        nextPollMs = refreshAtLocal > 0L && atRefresh > now && atRefresh < next ? atRefresh : next;
+    }
+
     // ---- who's actually doing the quests ----
 
     static List<Worker> workers() {
@@ -197,6 +205,7 @@ final class GuildShare {
                 || now - (updated + offset) > MAX_AGE_MS;
         if (!stale) {
             staleSinceMs = 0L;
+            pollAgain(now, refreshAtLocal);
             return;
         }
         if (staleSinceMs == 0L) {
@@ -234,7 +243,7 @@ final class GuildShare {
         body.add("quests", quests);
         body.addProperty("refreshIn", Math.max(0L, refreshAtMs - System.currentTimeMillis()));
         staleSinceMs = 0L;
-        nextPollMs = System.currentTimeMillis() + POLL_MS;
+        pollAgain(System.currentTimeMillis(), refreshAtMs);
         post("/gq/push", body, json -> {
         });
     }

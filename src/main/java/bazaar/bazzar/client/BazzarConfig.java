@@ -86,6 +86,9 @@ final class BazzarConfig {
         if (state.farmFavorites == null) {
             state.farmFavorites = new ArrayList<>();
         }
+        if (state.fishWarps == null) {
+            state.fishWarps = new ArrayList<>();
+        }
         if (state.chatTriggerMessages == null) {
             state.chatTriggerMessages = new ArrayList<>(List.of("", "", "", "", "", "", "", ""));
         }
@@ -128,11 +131,6 @@ final class BazzarConfig {
         } else if (state.autoBazaarScanIntervalSeconds > 3600) {
             state.autoBazaarScanIntervalSeconds = 3600;
         }
-        if (state.guildQuestAutoScanIntervalSeconds < 15) {
-            state.guildQuestAutoScanIntervalSeconds = 15;
-        } else if (state.guildQuestAutoScanIntervalSeconds > 3600) {
-            state.guildQuestAutoScanIntervalSeconds = 3600;
-        }
         state.questHudScale = Math.max(0.65f, Math.min(2.5f, state.questHudScale));
         state.questHudBackgroundMode = Math.max(0, Math.min(2, state.questHudBackgroundMode));
         state.autoPunchIntervalSeconds = Math.max(5, Math.min(600, state.autoPunchIntervalSeconds));
@@ -152,6 +150,7 @@ final class BazzarConfig {
         state.milestoneHudScale = Math.max(0.65f, Math.min(2.5f, state.milestoneHudScale));
         state.autoDumpPvPage = Math.max(1, Math.min(50, state.autoDumpPvPage));
         state.guildWorkHudScale = Math.max(0.65f, Math.min(2.5f, state.guildWorkHudScale));
+        state.killHudScale = Math.max(0.65f, Math.min(2.5f, state.killHudScale));
         return state;
     }
 
@@ -218,9 +217,6 @@ final class BazzarConfig {
         if (!root.has("guildQuestAutoScanEnabled")) {
             loaded.guildQuestAutoScanEnabled = defaults.guildQuestAutoScanEnabled;
         }
-        if (!root.has("guildQuestAutoScanIntervalSeconds")) {
-            loaded.guildQuestAutoScanIntervalSeconds = defaults.guildQuestAutoScanIntervalSeconds;
-        }
         if (!root.has("cookieAfkFailsafeEnabled")) {
             loaded.cookieAfkFailsafeEnabled = defaults.cookieAfkFailsafeEnabled;
         }
@@ -282,6 +278,9 @@ final class BazzarConfig {
         if (loaded.farmFavorites == null) {
             loaded.farmFavorites = new ArrayList<>();
         }
+        if (loaded.fishWarps == null) {
+            loaded.fishWarps = new ArrayList<>();
+        }
         if (loaded.celestialBoosterReadyAt == null) {
             loaded.celestialBoosterReadyAt = new HashMap<>();
         }
@@ -323,6 +322,7 @@ final class BazzarConfig {
         double currentMulti = 1.0d;
         List<String> cropBlacklist = new ArrayList<>();
         List<String> farmFavorites = new ArrayList<>();
+        List<String> fishWarps = new ArrayList<>();
         int farmFavX = -1;
         int farmFavY = -1;
         boolean farmQuestsEnabled = true;
@@ -337,7 +337,6 @@ final class BazzarConfig {
         float questHudScale = 1.0f;
         int questHudBackgroundMode = 0;
         boolean guildQuestAutoScanEnabled = false;
-        int guildQuestAutoScanIntervalSeconds = 180;
         String themeId = "indigo";
         List<String> chatTriggerMessages = new ArrayList<>(List.of(DEFAULT_TRIGGER, "", "", "", "", "", "", ""));
         List<String> chatTriggerCommands = new ArrayList<>(List.of(DEFAULT_TRIGGER_COMMAND, "", "", "", "", "", "", ""));
@@ -406,6 +405,11 @@ final class BazzarConfig {
         int guildWorkHudX = 6;
         int guildWorkHudY = 140;
         float guildWorkHudScale = 1.0f;
+        boolean killHudVisible = false;
+        int killHudX = 6;
+        int killHudY = 200;
+        float killHudScale = 1.0f;
+        boolean cbTutorialSeen = false;
         boolean cbWarningAccepted = false;
         boolean cbWarningHidden = false;
         boolean cbBuyCooldown = true;

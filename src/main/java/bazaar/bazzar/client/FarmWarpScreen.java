@@ -217,6 +217,8 @@ final class FarmWarpScreen extends Screen {
             type = TargetType.COMBAT;
         } else if (lower.startsWith("mine")) {
             type = TargetType.MINING;
+        } else if (isFishing(lower)) {
+            type = TargetType.FISHING;
         }
         return new TargetEntry(match.label(), source, type, progress, required, match.farm(), match.world(),
                 targetIcon(match), false);
@@ -239,11 +241,13 @@ final class FarmWarpScreen extends Screen {
             return null;
         }
         String lower = text.trim().toLowerCase(Locale.ROOT);
-        TargetType preferred = lower.startsWith("kill") || lower.startsWith("slay") ? TargetType.COMBAT : TargetType.FARMING;
+        TargetType preferred = lower.startsWith("kill") || lower.startsWith("slay") ? TargetType.COMBAT
+                : isFishing(lower) ? TargetType.FISHING : TargetType.FARMING;
         FarmMatch best = null;
         for (WorldTab world : WorldTab.values()) {
             for (FarmEntry farm : worldCrops.getOrDefault(world, List.of())) {
-                best = betterMatch(best, preferred, wanted, farm.name(), farm, world, TargetType.FARMING);
+                best = betterMatch(best, preferred, wanted, farm.name(), farm, world,
+                        world == WorldTab.FISHING ? TargetType.FISHING : TargetType.FARMING);
                 FarmMobScanner.MobInfo info = FarmMobScanner.get(farm.name());
                 if (info != null) {
                     best = betterMatch(best, preferred, wanted, info.drop, farm, world, TargetType.COMBAT);
@@ -266,6 +270,10 @@ final class FarmWarpScreen extends Screen {
             return best;
         }
         return new FarmMatch(farm, world, type, label, key);
+    }
+
+    private static boolean isFishing(String lower) {
+        return lower.startsWith("catch") || lower.startsWith("fish") || lower.startsWith("reel");
     }
 
     private static String compact(String text) {
@@ -494,6 +502,20 @@ final class FarmWarpScreen extends Screen {
                 farm("Raw Gold", "farm rawgold", new ItemStack(Items.RAW_GOLD)),
                 farm("Netherite", "farm netherite", new ItemStack(Items.NETHERITE_INGOT))
         ));
+        List<FarmEntry> fishing = new ArrayList<>();
+        for (String spot : FishWarps.spots()) {
+            fishing.add(farm(FishWarps.displayName(spot), FishWarps.warpCommand(spot), fishIcon(spot)));
+        }
+        worldCrops.put(WorldTab.FISHING, fishing);
+    }
+
+    private static ItemStack fishIcon(String spot) {
+        return new ItemStack(switch (spot) {
+            case "mackerel" -> Items.SALMON;
+            case "seabass" -> Items.TROPICAL_FISH;
+            case "bluefin" -> Items.PUFFERFISH;
+            default -> Items.COD;
+        });
     }
 
     @Override
@@ -944,7 +966,8 @@ final class FarmWarpScreen extends Screen {
     private enum TargetType {
         FARMING("Farming", 0x86EFAC),
         MINING("Mining", 0x7DD3FC),
-        COMBAT("Combat", 0xFF6B6B);
+        COMBAT("Combat", 0xFF6B6B),
+        FISHING("Fishing", 0x67E8F9);
 
         final String label;
         final int color;
@@ -962,7 +985,9 @@ final class FarmWarpScreen extends Screen {
         WORLD_3("Swamp", "warp swamp", 0x6A8F3A, 0x2E5E4E),
         WORLD_4("Honey", "warp honey", 0xFFC42E, 0xE3801A),
         WORLD_5("Library", "warps library", 0xE0457B, 0x5B6CFF),
-        WORLD_6("Infernal Citadel", "warps infernalcitadel", 0xFF5A1F, 0xB0122E);
+        WORLD_6("Infernal Citadel", "warps infernalcitadel", 0xFF5A1F, 0xB0122E),
+        // the spots are the warps here, so the header itself has nothing to click
+        FISHING("Fishing", "", 0x67E8F9, 0x1D4ED8);
 
         final String displayName;
         final String warpCommand;

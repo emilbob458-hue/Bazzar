@@ -3197,15 +3197,20 @@ final class BazaarTrackerScreen extends Screen {
 
     private void reloadRows() {
         Map<String, RowEntry> merged = new LinkedHashMap<>();
-        for (String crop : DEFAULT_CROPS) {
-            String key = normalizeToken(crop);
-            if (key.isBlank()) {
-                continue;
+        List<BazaarFlipScanner.FlipCandidate> scanned = BazaarFlipScanner.getLastCropsScan();
+        // the built-in names are only here so the tracker isn't blank before the first scan. Once a
+        // scan has happened it is the season's own list, so last season's crops don't sit there for ever.
+        if (scanned.isEmpty()) {
+            for (String crop : DEFAULT_CROPS) {
+                String key = normalizeToken(crop);
+                if (key.isBlank()) {
+                    continue;
+                }
+                merged.put(key, new RowEntry(crop, crop, null, null, null, false));
             }
-            merged.put(key, new RowEntry(crop, crop, null, null, null, false));
         }
 
-        for (BazaarFlipScanner.FlipCandidate candidate : BazaarFlipScanner.getLastCropsScan()) {
+        for (BazaarFlipScanner.FlipCandidate candidate : scanned) {
             if (candidate == null) {
                 continue;
             }

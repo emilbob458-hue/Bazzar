@@ -19,12 +19,32 @@ final class CurrencyIcons {
             "\\[([a-z0-9_./:-]+?)(?:@([a-z0-9_./:-]+))?\\]\\s*[0-9.,]*[kmbt]?\\s*(tokens?|gems?|shards?|cobble)\\b",
             Pattern.CASE_INSENSITIVE);
     private static final Map<String, Component> ICONS = new HashMap<>();
+    // the same sprites by path, so a line that shows the icon and no word can still be read
+    private static final Map<String, String> SPRITE_PATHS = new HashMap<>();
 
     static {
-        ICONS.put("tokens", sprite(AtlasIds.ITEMS, "item/gold_ingot"));
-        ICONS.put("gems", sprite(AtlasIds.ITEMS, "item/amethyst_shard"));
-        ICONS.put("shards", sprite(AtlasIds.ITEMS, "item/prismarine_shard"));
-        ICONS.put("cobble", sprite(AtlasSprite.DEFAULT_ATLAS, "block/cobblestone"));
+        put("tokens", AtlasIds.ITEMS, "item/gold_ingot");
+        put("gems", AtlasIds.ITEMS, "item/amethyst_shard");
+        put("shards", AtlasIds.ITEMS, "item/prismarine_shard");
+        put("cobble", AtlasSprite.DEFAULT_ATLAS, "block/cobblestone");
+    }
+
+    private static void put(String currency, Identifier atlas, String path) {
+        ICONS.put(currency, sprite(atlas, path));
+        SPRITE_PATHS.put(currency, path);
+    }
+
+    // which currency the sprite on this line belongs to, for a sidebar that shows no word for it
+    static String currencyForSprite(String rawLine) {
+        if (rawLine == null || rawLine.indexOf('[') < 0) {
+            return null;
+        }
+        for (Map.Entry<String, String> known : SPRITE_PATHS.entrySet()) {
+            if (rawLine.contains(known.getValue())) {
+                return known.getKey();
+            }
+        }
+        return null;
     }
 
     private CurrencyIcons() {
@@ -45,6 +65,7 @@ final class CurrencyIcons {
             String currency = CelestialMarket.currencyOf(matcher.group(3).toLowerCase(Locale.ROOT));
             if (currency != null) {
                 ICONS.put(currency, Component.object(new AtlasSprite(atlasId, spriteId)));
+                SPRITE_PATHS.put(currency, spriteId.getPath());
             }
         }
     }

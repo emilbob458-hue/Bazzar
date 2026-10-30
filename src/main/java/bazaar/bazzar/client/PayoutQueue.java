@@ -116,7 +116,7 @@ final class PayoutQueue {
             return;
         }
         Pending next = QUEUE.pollFirst();
-        client.player.connection.sendCommand("paytokens " + next.amountText + " " + next.sender);
+        CommandSender.send(client, "paytokens " + next.amountText + " " + next.sender);
         next.sentMs = now;
         lastSendMs = now;
         inFlight = next;

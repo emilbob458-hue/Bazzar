@@ -53,6 +53,8 @@ final class AutoUpdater {
     private static final Path PART_JAR = DIR.resolve("Bazzar.jar.part");
     private static final Path DISABLED = DIR.resolve("disabled");
     private static final Path HELPER_DIR = DIR.resolve("helper");
+    // what the last swap attempt did, written by the helper after Minecraft closed
+    private static final Path LOG = DIR.resolve("update.log");
     private static final long RECHECK_MS = 30L * 60_000L;
     private static final long REMIND_MS = 5L * 60_000L;
     // 5 or more versions behind, or below a "min-version: 1.19" line in the release notes, updates right away
@@ -78,18 +80,59 @@ final class AutoUpdater {
     }
 
     static void registerCommands() {
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
-                literal("bazzarupdate")
-                        .requires(source -> !BazzarGuard.isBlocked())
-                        .executes(AutoUpdater::runCheck)
-                        .then(literal("on").executes(ctx -> runToggle(ctx, true)))
-                        .then(literal("off").executes(ctx -> runToggle(ctx, false)))));
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            dispatcher.register(literal("bazzarupdate")
+                    .requires(source -> !BazzarGuard.isBlocked())
+                    .executes(AutoUpdater::runCheck)
+                    .then(literal("on").executes(ctx -> runToggle(ctx, true)))
+                    .then(literal("off").executes(ctx -> runToggle(ctx, false))));
+            // the mod is Bazzar but everyone types the Bazaar spelling, so answer to both
+            dispatcher.register(literal("bazaarupdate")
+                    .requires(source -> !BazzarGuard.isBlocked())
+                    .executes(AutoUpdater::runCheck)
+                    .then(literal("on").executes(ctx -> runToggle(ctx, true)))
+                    .then(literal("off").executes(ctx -> runToggle(ctx, false))));
+        });
     }
 
     static void start() {
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> applyPending());
+        reportLastAttempt();
         nextCheckMs = System.currentTimeMillis() + RECHECK_MS;
         checkAsync(false);
+    }
+
+    // a download still sitting here means the last shutdown never installed it. Say so, with whatever
+    // the helper wrote down, instead of quietly telling them to restart again.
+    private static void reportLastAttempt() {
+        try {
+            if (!Files.isRegularFile(PENDING_JAR) || !Files.isRegularFile(PENDING_VERSION)) {
+                return;
+            }
+            Version pending = parseVersion(Files.readString(PENDING_VERSION).trim());
+            if (pending.compareTo(currentVersion()) <= 0) {
+                clearPending();
+                return;
+            }
+            post("Bazzar " + pending.getFriendlyString() + " was downloaded but the last restart did not install it."
+                            + lastAttemptNote() + " It will try again when you close Minecraft.",
+                    ChatFormatting.YELLOW);
+        } catch (Exception ignored) {
+        }
+    }
+
+    // the helper writes a timestamp and then what happened, and only the what is worth reading out
+    private static String lastAttemptNote() {
+        try {
+            if (!Files.isRegularFile(LOG)) {
+                return "";
+            }
+            String line = Files.readString(LOG).trim();
+            int space = line.indexOf(' ');
+            return space < 0 ? "" : " Last try: " + line.substring(space + 1) + ".";
+        } catch (IOException e) {
+            return "";
+        }
     }
 
     static void tick(Minecraft client) {
@@ -369,7 +412,11 @@ final class AutoUpdater {
 
     private static void applyPending() {
         try {
-            if (!Files.isRegularFile(PENDING_JAR) || !Files.isRegularFile(PENDING_VERSION) || (Files.exists(DISABLED) && !forced)) {
+            if (!Files.isRegularFile(PENDING_JAR) || !Files.isRegularFile(PENDING_VERSION)) {
+                return;
+            }
+            if (Files.exists(DISABLED) && !forced) {
+                UpdateApplier.write(LOG, "skipped, auto update is off");
                 return;
             }
             Version pending = parseVersion(Files.readString(PENDING_VERSION).trim());
@@ -378,17 +425,25 @@ final class AutoUpdater {
                 return;
             }
             Path jar = ownJar();
-            if (jar == null || !isBazzarJar(PENDING_JAR)) {
+            if (jar == null) {
+                UpdateApplier.write(LOG, "Bazzar is not running from a jar, so there is nothing to replace");
+                return;
+            }
+            if (!isBazzarJar(PENDING_JAR)) {
+                UpdateApplier.write(LOG, "the download is not a Bazzar build for Minecraft " + target());
                 return;
             }
             Path helperClass = HELPER_DIR.resolve(UpdateApplier.class.getName().replace('.', '/') + ".class");
             Files.createDirectories(helperClass.getParent());
             try (InputStream in = AutoUpdater.class.getResourceAsStream("/" + UpdateApplier.class.getName().replace('.', '/') + ".class")) {
                 if (in == null) {
+                    UpdateApplier.write(LOG, "the updater helper is missing from the jar");
                     return;
                 }
                 Files.copy(in, helperClass, StandardCopyOption.REPLACE_EXISTING);
             }
+            // if the helper dies before it can write its own line, this one is what is left to read
+            UpdateApplier.write(LOG, "the updater was started but never reported back");
             new ProcessBuilder(List.of(
                     javaExecutable().toString(),
                     "-cp", HELPER_DIR.toString(),
@@ -400,7 +455,8 @@ final class AutoUpdater {
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                     .redirectError(ProcessBuilder.Redirect.DISCARD)
                     .start();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            UpdateApplier.write(LOG, "the updater could not be started, " + e);
         }
     }
 
@@ -495,6 +551,7 @@ final class AutoUpdater {
         Files.deleteIfExists(PENDING_JAR);
         Files.deleteIfExists(PENDING_VERSION);
         Files.deleteIfExists(PART_JAR);
+        Files.deleteIfExists(LOG);
     }
 
     private static void post(String text, ChatFormatting color) {

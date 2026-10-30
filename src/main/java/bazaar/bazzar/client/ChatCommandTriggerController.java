@@ -12,19 +12,24 @@ import net.minecraft.client.Minecraft;
 
 final class ChatCommandTriggerController {
     static final int SLOT_COUNT = 8;
-    private static final long COOLDOWN_MS = 5_000L;
-    // /launchtizzle (the hotdog trigger) can only go out once every 10 minutes
-    private static final long LAUNCH_COOLDOWN_MS = 10 * 60_000L;
-    private static final long SENDER_COOLDOWN_MS = 30_000L;
-    private static final long FIRE_WINDOW_MS = 30_000L;
-    private static final int MAX_FIRES_PER_WINDOW = 3;
+    // every trigger waits this long before it can fire again, /launchtizzle included
+    static final long COOLDOWN_MS = 5_000L;
+    // one person repeating the trigger is paced by the same cooldown as everyone else, so the
+    // five seconds above is what you actually get whoever says it
+    private static final long SENDER_COOLDOWN_MS = COOLDOWN_MS;
+    static final long FIRE_WINDOW_MS = 30_000L;
+    // enough fires in the window for the cooldown above to be the thing that actually paces them
+    static final int MAX_FIRES_PER_WINDOW = (int) (FIRE_WINDOW_MS / COOLDOWN_MS);
     private static final int MAX_QUEUED = 4;
     private static final int SEND_SPACING_TICKS = 10;
+
+    private record Pending(String command, long sendAtMs) {
+    }
 
     private static final String[] commandsToSend = new String[SLOT_COUNT];
     private static final String[] triggerMessages = new String[SLOT_COUNT];
     private static final long[] slotLastSentMs = new long[SLOT_COUNT];
-    private static final ArrayDeque<String> sendQueue = new ArrayDeque<>();
+    private static final ArrayDeque<Pending> sendQueue = new ArrayDeque<>();
     // spam guard: someone repeating the trigger must not make us spam commands and get kicked
     private static final ArrayDeque<Long> recentFires = new ArrayDeque<>();
     private static final Map<String, Long> senderLastFiredMs = new HashMap<>();
@@ -105,8 +110,7 @@ final class ChatCommandTriggerController {
             if (rule.triggerText().isBlank() || cmd == null || cmd.isBlank()) {
                 continue;
             }
-            long cooldown = cmd.toLowerCase(Locale.ROOT).contains("launchtizzle") ? LAUNCH_COOLDOWN_MS : COOLDOWN_MS;
-            if (now - slotLastSentMs[i] < cooldown) {
+            if (!readyToFire(slotLastSentMs[i], now)) {
                 continue;
             }
             boolean slotSelfOnly = selfOnlyFlags != null && i < selfOnlyFlags.size() && Boolean.TRUE.equals(selfOnlyFlags.get(i));
@@ -132,6 +136,8 @@ final class ChatCommandTriggerController {
                     || recentFires.size() >= MAX_FIRES_PER_WINDOW || sendQueue.size() >= MAX_QUEUED) {
                 continue;
             }
+            // each account waits its turn, so the alts fire one after another down the list
+            long readyAt = now + staggerDelayMs(altIndex(client));
             boolean queued = false;
             for (String part : cmd.split(";")) {
                 String trimmed = part.trim();
@@ -141,7 +147,7 @@ final class ChatCommandTriggerController {
                 if (trimmed.isBlank()) {
                     continue;
                 }
-                sendQueue.addLast(trimmed);
+                sendQueue.addLast(new Pending(trimmed, readyAt));
                 queued = true;
             }
             if (queued) {
@@ -152,23 +158,73 @@ final class ChatCommandTriggerController {
         }
     }
 
+    // a trigger that fired at lastSentMs may go again once the cooldown has run out
+    static boolean readyToFire(long lastSentMs, long now) {
+        return now - lastSentMs >= COOLDOWN_MS;
+    }
+
+    // the first account goes straight away, the next waits one cooldown, and so on down the list
+    static long staggerDelayMs(int altIndex) {
+        return Math.max(0, altIndex) * COOLDOWN_MS;
+    }
+
+    // where this account sits in the alt list: the owner first, then whichever member slots are
+    // filled in. An account that isn't on the list is on its own, so it goes first.
+    static int altIndex(String self, String owner, List<String> members) {
+        String me = normalizePlayerName(self);
+        if (me.isEmpty()) {
+            return 0;
+        }
+        String head = normalizePlayerName(owner);
+        if (!head.isEmpty() && head.equals(me)) {
+            return 0;
+        }
+        int index = head.isEmpty() ? 0 : 1;
+        if (members != null) {
+            for (String member : members) {
+                String name = normalizePlayerName(member);
+                if (name.isEmpty()) {
+                    continue;
+                }
+                if (name.equals(me)) {
+                    return index;
+                }
+                index++;
+            }
+        }
+        return 0;
+    }
+
+    private static int altIndex(Minecraft client) {
+        if (client == null || client.player == null) {
+            return 0;
+        }
+        List<String> members = new java.util.ArrayList<>();
+        for (int i = 0; i < ShardPayController.MEMBER_SLOT_COUNT; i++) {
+            members.add(ShardPayController.getMember(i));
+        }
+        return altIndex(client.player.getName().getString(), ShardPayController.getOwner(), members);
+    }
+
     static void tick(Minecraft client) {
         if (ticksUntilNextSend > 0) {
             ticksUntilNextSend--;
         }
-        if (sendQueue.isEmpty()) {
+        Pending next = sendQueue.peekFirst();
+        if (next == null) {
             return;
         }
         if (client == null || client.player == null || client.player.connection == null) {
             sendQueue.clear();
             return;
         }
-        if (ticksUntilNextSend > 0) {
+        // nothing goes out before this account's turn comes round
+        if (ticksUntilNextSend > 0 || System.currentTimeMillis() < next.sendAtMs()) {
             return;
         }
-        String command = sendQueue.pollFirst();
-        if (command != null && !command.isBlank()) {
-            client.player.connection.sendCommand(command);
+        sendQueue.pollFirst();
+        if (!next.command().isBlank()) {
+            CommandSender.send(client, next.command());
         }
         ticksUntilNextSend = SEND_SPACING_TICKS;
     }

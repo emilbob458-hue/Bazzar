@@ -143,6 +143,7 @@ public final class MobMilestones {
                 RECENT_HITS.put(entity.getId(), now);
                 lastAttackMs = now;
                 GuildQuestScanner.onMobHit(entity);
+                MobKillTracker.onSeen(entity);
                 String key = matchMob(entity);
                 if (key != null) {
                     currentMobKey = key;
@@ -192,6 +193,7 @@ public final class MobMilestones {
         if (unsavedSinceMs > 0L && System.currentTimeMillis() - unsavedSinceMs >= SAVE_DELAY_MS) {
             save();
         }
+        MobKillTracker.tick();
         tickScan(client);
     }
 
@@ -341,6 +343,7 @@ public final class MobMilestones {
         long whole = (long) pendingKills;
         pendingKills -= whole;
         SessionProfitHud.onKills(whole);
+        MobKillTracker.onRateKills(whole);
         Entry entry = get(currentMobKey);
         if (entry == null) {
             return;
@@ -397,6 +400,10 @@ public final class MobMilestones {
         GuildQuestScanner.onMobKilled(living);
         if (addKill) {
             SessionProfitHud.onKills(1L);
+            MobKillTracker.onKill(living);
+        } else {
+            // MPS is doing the counting, but this still says what is dying
+            MobKillTracker.onSeen(living);
         }
         String key = matchMob(living);
         if (key == null) {

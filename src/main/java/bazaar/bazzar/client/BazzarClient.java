@@ -1,6 +1,7 @@
 package bazaar.bazzar.client;
 
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
@@ -31,6 +32,7 @@ public class BazzarClient implements ClientModInitializer {
         QuestCommandHud.applyConfig(config);
         MobMilestoneHud.applyConfig(config);
         GuildWorkHud.applyConfig(config);
+        MobKillHud.applyConfig(config);
         ShardCalculator.setShardPrice(config.shardPrice);
         ShardCalculator.setGemPrice(config.gemPrice);
         ShardCalculator.setCurrentMulti(config.currentMulti);
@@ -55,6 +57,13 @@ public class BazzarClient implements ClientModInitializer {
         UsageStats.registerCommands();
         PlayerStats.registerCommands();
         MobMilestones.registerCommands();
+        MobKillTracker.registerCommands();
+        // both keep an all time count and only write it out every half minute, so closing the game
+        // in between would otherwise throw away the kills since the last write
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            MobKillTracker.save();
+            MobMilestones.save();
+        });
         CelestialTracker.registerCommands();
         CelestialMarket.registerCommands();
         GuildShare.registerCommands();
@@ -136,7 +145,11 @@ public class BazzarClient implements ClientModInitializer {
                 PinnedBazaarHud.toggleVisibility();
                 if (client.player != null) {
                     McCompat.chat(client.player, BazaarChat.prefix().append(net.minecraft.network.chat.Component.literal(
-                            PinnedBazaarHud.isVisible() ? "HUD shown" : "HUD hidden")));
+                            PinnedBazaarHud.isVisible()
+                                    ? PinnedBazaarHud.hasPins()
+                                            ? "HUD shown"
+                                            : "HUD shown. Nothing is pinned yet, so scan the bazaar first."
+                                    : "HUD hidden")));
                 }
             }
             while (trackerGuiKey.consumeClick()) {
@@ -148,6 +161,8 @@ public class BazzarClient implements ClientModInitializer {
                 QuestCommandHud.setVisible(true);
                 GuildQuestScanner.triggerManual(client);
             }
+            // hold the quest key to keep /gq up instead of it flashing shut after the scan
+            GuildQuestScanner.setHoldOpen(McCompat.keyHeld(client, questHudKey));
             while (pvSearchKey.consumeClick()) {
                 if (McCompat.screen(client) == null) {
                     McCompat.setScreen(client, new PvSearchScreen());
@@ -172,6 +187,7 @@ public class BazzarClient implements ClientModInitializer {
                     MacroController.sendKeyMacro(client, i);
                 }
             }
+            CommandSender.tick(client);
             MacroController.tick(client);
             BazaarAutoScanController.triggerAuto(client);
             GuildQuestScanner.triggerAuto(client);
@@ -191,6 +207,7 @@ public class BazzarClient implements ClientModInitializer {
             FarmMobScanner.tick(client);
             MobMilestones.tick(client);
             ChatTagCompletions.tick(client);
+            FishWarps.tick(client);
             CelestialMarket.tick(client);
             CelestialMarketHud.tick(client);
             GuildShare.tick(client);
@@ -210,8 +227,9 @@ public class BazzarClient implements ClientModInitializer {
             boolean profitHudDirty = SessionProfitHud.consumeDirty();
             boolean milestoneHudDirty = MobMilestoneHud.consumeDirty();
             boolean guildWorkDirty = GuildWorkHud.consumeDirty();
+            boolean killHudDirty = MobKillHud.consumeDirty();
             if (hudDirty || autoScanDirty || guildQuestDirty || shadyDirty || questHudDirty || profitHudDirty || milestoneHudDirty
-                    || guildWorkDirty) {
+                    || guildWorkDirty || killHudDirty) {
                 BazzarConfig.State merged = BazzarConfig.load();
                 if (hudDirty) {
                     BazzarConfig.State hudOnly = PinnedBazaarHud.captureConfig();
@@ -240,6 +258,9 @@ public class BazzarClient implements ClientModInitializer {
                 }
                 if (guildWorkDirty) {
                     GuildWorkHud.applyConfigToState(merged);
+                }
+                if (killHudDirty) {
+                    MobKillHud.applyConfigToState(merged);
                 }
                 BazzarConfig.save(merged);
             }
@@ -305,6 +326,7 @@ public class BazzarClient implements ClientModInitializer {
                 MobMilestoneHud.render(graphics, -1, -1);
                 CelestialMarketHud.render(graphics, -1, -1);
                 GuildWorkHud.render(graphics, -1, -1);
+                MobKillHud.render(graphics, -1, -1);
             }
         });
 
@@ -321,6 +343,7 @@ public class BazzarClient implements ClientModInitializer {
                 MobMilestoneHud.onMouseClick(scr, event);
                 CelestialMarketHud.onMouseClick(scr, event);
                 GuildWorkHud.onMouseClick(scr, event);
+                MobKillHud.onMouseClick(scr, event);
                 ScoreboardOverlay.onMouseClick(scr, event);
                 return false;
             });
@@ -332,6 +355,7 @@ public class BazzarClient implements ClientModInitializer {
                 MobMilestoneHud.onMouseRelease(scr, event);
                 CelestialMarketHud.onMouseRelease(scr, event);
                 GuildWorkHud.onMouseRelease(scr, event);
+                MobKillHud.onMouseRelease(scr, event);
                 ScoreboardOverlay.onMouseRelease(scr, event);
                 return false;
             });
@@ -343,6 +367,7 @@ public class BazzarClient implements ClientModInitializer {
                 MobMilestoneHud.onMouseDrag(scr, event, deltaX, deltaY);
                 CelestialMarketHud.onMouseDrag(scr, event, deltaX, deltaY);
                 GuildWorkHud.onMouseDrag(scr, event, deltaX, deltaY);
+                MobKillHud.onMouseDrag(scr, event, deltaX, deltaY);
                 ScoreboardOverlay.onMouseDrag(scr, event, deltaX, deltaY);
                 return false;
             });
@@ -352,6 +377,7 @@ public class BazzarClient implements ClientModInitializer {
                 SessionProfitHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 MobMilestoneHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 GuildWorkHud.onMouseScroll(mouseX, mouseY, verticalAmount);
+                MobKillHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 ScoreboardOverlay.onMouseScroll(mouseX, mouseY, verticalAmount);
                 return false;
             });
@@ -364,6 +390,7 @@ public class BazzarClient implements ClientModInitializer {
                 MobMilestoneHud.render(graphics, mouseX, mouseY);
                 CelestialMarketHud.render(graphics, mouseX, mouseY);
                 GuildWorkHud.render(graphics, mouseX, mouseY);
+                MobKillHud.render(graphics, mouseX, mouseY);
             });
         });
     }

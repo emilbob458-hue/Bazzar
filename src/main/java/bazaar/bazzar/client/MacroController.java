@@ -68,7 +68,7 @@ final class MacroController {
             return;
         }
         if (trimmed.startsWith("/")) {
-            client.player.connection.sendCommand(trimmed.substring(1));
+            CommandSender.send(client, trimmed);
         } else {
             client.player.connection.sendChat(trimmed);
         }

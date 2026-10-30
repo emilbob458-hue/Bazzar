@@ -1,5 +1,7 @@
 package bazaar.bazzar.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.BossHealthOverlay;
 import net.minecraft.client.gui.screens.Screen;
@@ -69,6 +71,23 @@ final class McCompat {
         /*return client.gui.hud.isHidden();
         *///?} else
         return client.options.hideGui;
+    }
+
+    // Minecraft.setScreen calls KeyMapping.releaseAll, so isDown() goes false the moment a menu
+    // opens. Holding a key through a menu has to be read from the window itself.
+    static boolean keyHeld(Minecraft client, KeyMapping mapping) {
+        if (client == null || mapping == null || client.getWindow() == null) {
+            return false;
+        }
+        //? if >=26.1 {
+        /*InputConstants.Key key = net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper.getBoundKeyOf(mapping);
+        *///?} else
+        InputConstants.Key key = net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.getBoundKeyOf(mapping);
+        if (key == null || key.getType() != InputConstants.Type.KEYSYM
+                || key.getValue() == InputConstants.UNKNOWN.getValue()) {
+            return false;
+        }
+        return InputConstants.isKeyDown(client.getWindow(), key.getValue());
     }
 
     static DisplaySlot teamSlot(PlayerTeam team) {
