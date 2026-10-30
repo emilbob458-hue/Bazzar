@@ -332,6 +332,14 @@ final class GuildQuestScanner {
         return LIVE.consumeContributed();
     }
 
+    static Map<String, Long> liveCounts() {
+        return LIVE.myCounts();
+    }
+
+    static void onGuildTotals(Map<String, Long> totals) {
+        LIVE.onPooled(totals);
+    }
+
     // when the current quests run out; also tells the guild HUD that a new set of quests started
     static long questsRefreshAtMs() {
         return questsRefreshAtMs;
@@ -425,6 +433,7 @@ final class GuildQuestScanner {
     private static void setRefreshAt(long refreshAtMs) {
         if (Math.abs(refreshAtMs - questsRefreshAtMs) > NEW_CYCLE_MS) {
             completedNames.clear();
+            LIVE.newCycle();
         }
         questsRefreshAtMs = refreshAtMs;
     }

@@ -16,7 +16,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
@@ -37,7 +39,7 @@ final class GuildShare {
     // if no AFK member has scanned for this long, the normal auto scan takes over again
     private static final long FALLBACK_MS = 20L * 60_000L;
     // how often everyone tells the guild what they've put into the quests, for the "who's working" HUD
-    private static final long WORKERS_MS = 30_000L;
+    private static final long WORKERS_MS = 5_000L;
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "Bazzar-GuildShare");
@@ -165,12 +167,24 @@ final class GuildShare {
         JsonObject body = body(client, guild);
         body.addProperty("done", Math.round(myWork));
         body.addProperty("afk", PlayerStats.isAfk());
+        JsonObject counts = new JsonObject();
+        for (Map.Entry<String, Long> count : GuildQuestScanner.liveCounts().entrySet()) {
+            counts.addProperty(count.getKey(), count.getValue());
+        }
+        body.add("counts", counts);
         post("/gq/who", body, GuildShare::onWorkers);
     }
 
     private static void onWorkers(JsonObject json) {
         if (json == null || !json.has("members")) {
             return;
+        }
+        if (json.has("totals") && json.get("totals").isJsonObject()) {
+            Map<String, Long> totals = new HashMap<>();
+            for (Map.Entry<String, JsonElement> total : json.getAsJsonObject("totals").entrySet()) {
+                totals.put(total.getKey(), total.getValue().getAsLong());
+            }
+            GuildQuestScanner.onGuildTotals(totals);
         }
         List<Worker> found = new ArrayList<>();
         for (JsonElement element : json.getAsJsonArray("members")) {

@@ -606,4 +606,45 @@ class QuestLiveTrackerTest {
         tracker.onActionBar(catchLine("GOOD", "2", "", "0.09", "+11"), now);
         assertEquals(42d, tracker.live("Catch 500 Pilchard"));
     }
+
+    @Test
+    void guildmatesFarmingTheSameQuestShowOnBoth() {
+        QuestLiveTracker other = new QuestLiveTracker();
+        List<String[]> quests = new ArrayList<>();
+        quests.add(new String[]{"Farm 5,000 Wheat", "1,000", "5,000"});
+        tracker.onScan(quests);
+        other.onScan(quests);
+        tracker.onPooled(java.util.Map.of());
+        other.onPooled(java.util.Map.of());
+
+        for (int i = 0; i < 300; i++) {
+            tracker.onCounted(QuestLiveTracker.Kind.FARM, 1L, List.of("Wheat Crops"), now);
+            now += 10_000L;
+        }
+        for (int i = 0; i < 200; i++) {
+            other.onCounted(QuestLiveTracker.Kind.FARM, 1L, List.of("Wheat Crops"), now);
+            now += 10_000L;
+        }
+        java.util.Map<String, Long> totals = new java.util.HashMap<>(tracker.myCounts());
+        other.myCounts().forEach((quest, count) -> totals.merge(quest, count, Long::sum));
+        tracker.onPooled(totals);
+        other.onPooled(totals);
+
+        assertEquals(1_500d, tracker.live("Farm 5,000 Wheat"));
+        assertEquals(1_500d, other.live("Farm 5,000 Wheat"));
+        assertEquals(300L, tracker.myCounts().get("farm5000wheat:5000"));
+    }
+
+    @Test
+    void guildCountsBeforeTheScanAreNotCountedTwice() {
+        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 800L));
+        scan("Farm 5,000 Wheat", "1,800", "5,000");
+        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 900L));
+        assertEquals(1_900d, tracker.live("Farm 5,000 Wheat"));
+
+        tracker.newCycle();
+        scan("Farm 5,000 Wheat", "0", "5,000");
+        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 900L));
+        assertEquals(0d, tracker.live("Farm 5,000 Wheat"));
+    }
 }

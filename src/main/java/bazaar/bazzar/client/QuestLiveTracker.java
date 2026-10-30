@@ -44,17 +44,26 @@ final class QuestLiveTracker {
         final String target;
         final double base;
         final double required;
+        final String poolKey;
         double added;
+        double baseline;
+        double shared;
 
-        Quest(Kind kind, String target, double base, double required) {
+        Quest(Kind kind, String target, double base, double required, String poolKey, double baseline) {
             this.kind = kind;
             this.target = target;
             this.base = base;
             this.required = required;
+            this.poolKey = poolKey;
+            this.baseline = baseline;
+        }
+
+        double done() {
+            return base + Math.max(added, shared);
         }
 
         boolean open() {
-            return base + added < required;
+            return done() < required;
         }
     }
 
@@ -69,6 +78,9 @@ final class QuestLiveTracker {
     private double contributed = 0d;
     private long catchWindowMs = 0L;
     private double catchWindowGained = 0d;
+    private final Map<String, Double> mine = new HashMap<>();
+    private Map<String, Long> pooled = Map.of();
+    private boolean pooledSeen = false;
 
     // a fresh /gq read or guild share is the truth again, so live counting starts over from it
     void onScan(List<String[]> scanned) {
@@ -80,7 +92,9 @@ final class QuestLiveTracker {
             if (kind == null || base < 0d || required <= 0d) {
                 continue;
             }
-            quests.put(questKey(quest[0]), new Quest(kind, target(quest[0]), base, required));
+            String poolKey = questKey(quest[0]) + ":" + (long) required;
+            double baseline = pooledSeen ? pooled.getOrDefault(poolKey, 0L) : -1d;
+            quests.put(questKey(quest[0]), new Quest(kind, target(quest[0]), base, required, poolKey, baseline));
         }
     }
 
@@ -239,7 +253,7 @@ final class QuestLiveTracker {
         if (quest == null) {
             return -1d;
         }
-        return Math.min(quest.required, Math.floor(quest.base + quest.added));
+        return Math.min(quest.required, Math.floor(quest.done()));
     }
 
     // seconds until this quest is done at the current rate, or -1 when it isn't being worked on
@@ -252,7 +266,7 @@ final class QuestLiveTracker {
         if (perSecond <= 0d) {
             return -1L;
         }
-        return (long) Math.ceil((quest.required - quest.base - quest.added) / perSecond);
+        return (long) Math.ceil((quest.required - quest.done()) / perSecond);
     }
 
     boolean isActive(String questName, long now) {
@@ -267,6 +281,33 @@ final class QuestLiveTracker {
         double before = quest.added;
         quest.added = Math.min(quest.required - quest.base, quest.added + amount);
         contributed += quest.added - before;
+        mine.merge(quest.poolKey, quest.added - before, Double::sum);
+    }
+
+    Map<String, Long> myCounts() {
+        Map<String, Long> counts = new HashMap<>();
+        for (Quest quest : quests.values()) {
+            counts.put(quest.poolKey, (long) Math.floor(mine.getOrDefault(quest.poolKey, 0d)));
+        }
+        return counts;
+    }
+
+    void onPooled(Map<String, Long> totals) {
+        pooled = Map.copyOf(totals);
+        pooledSeen = true;
+        for (Quest quest : quests.values()) {
+            double total = pooled.getOrDefault(quest.poolKey, 0L);
+            if (quest.baseline < 0d) {
+                quest.baseline = total;
+            }
+            quest.shared = Math.min(quest.required - quest.base, Math.max(quest.shared, total - quest.baseline));
+        }
+    }
+
+    void newCycle() {
+        mine.clear();
+        pooled = Map.of();
+        pooledSeen = false;
     }
 
     // everything this player has put into the guild quests since the last call, for the "who's working" HUD.
