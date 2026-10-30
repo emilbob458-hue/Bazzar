@@ -171,8 +171,6 @@ public final class CookieController {
             context.getSource().sendFeedback(prefix().append(Component.literal("Failed to use cookie.")));
             return 0;
         }
-        // nothing to say on success: the server answers with "You set your active fortune cookie to
-        // ..." when it actually changes, and saying it ourselves was wrong whenever it didn't
         return 1;
     }
 
@@ -256,7 +254,6 @@ public final class CookieController {
         }
         boolean justEnded = System.currentTimeMillis() - lastRushChainEndMs < RUSH_ENDED_IGNORE_MS;
         String verdict = justEnded ? "ignored (rush already ended)" : "rush started";
-        // the counter title updates ~10 times a second, so only log it when the verdict changes
         long now = System.currentTimeMillis();
         if (!verdict.equals(lastCounterVerdict) || now - lastCounterLogMs >= COUNTER_LOG_GAP_MS) {
             lastCounterVerdict = verdict;
@@ -316,7 +313,6 @@ public final class CookieController {
         rushRestoreFrom = null;
         rushLateFrom = null;
         rushLateTarget = null;
-        // encore rush right after switching back: the bossbar can still show the rush cookie
         boolean justRestored = now - rushRestoreSentMs < RUSH_RESTORE_RECENT_MS;
         String previous = justRestored ? rushRestoredTo : detectActiveCookie(client);
         if (cookieType.equals(previous)) {
@@ -419,7 +415,6 @@ public final class CookieController {
         if (trimmed.equals("afk") || trimmed.startsWith("afk ")) {
             inAfkBubble = true;
         }
-        // /farm carrot or /farms carrot: remember the farm so a blacklisted crop doesn't get the rush cookie
         Matcher farm = FARM_COMMAND_PATTERN.matcher(trimmed);
         if (farm.find()) {
             currentFarm = farm.group(1);
@@ -462,7 +457,6 @@ public final class CookieController {
             if (CHAIN_DONE_PATTERN.matcher(SbText.stripFormattingCodes(message)).find()) {
                 lastRushChainEndMs = System.currentTimeMillis();
                 lastRushTriggerMs = 0L;
-                // "⚡ RUSH chain (4.8s) • 2,733x [+82.73B Brown Paint]" says which farm you're on
                 Matcher crop = RUSH_CROP_PATTERN.matcher(SbText.stripFormattingCodes(message));
                 if (crop.find()) {
                     currentFarm = crop.group(1).trim().toLowerCase(Locale.ROOT);
