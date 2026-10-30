@@ -171,7 +171,8 @@ public final class CookieController {
             context.getSource().sendFeedback(prefix().append(Component.literal("Failed to use cookie.")));
             return 0;
         }
-        context.getSource().sendFeedback(prefix().append(Component.literal("Used cookie: " + cookieType)));
+        // nothing to say on success: the server answers with "You set your active fortune cookie to
+        // ..." when it actually changes, and saying it ourselves was wrong whenever it didn't
         return 1;
     }
 
