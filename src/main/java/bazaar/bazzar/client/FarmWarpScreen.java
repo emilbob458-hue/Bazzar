@@ -94,6 +94,8 @@ final class FarmWarpScreen extends Screen {
     private final List<FavEntry> favorites = new ArrayList<>();
     private final Set<String> favoriteCommands = new HashSet<>();
     private final List<TargetEntry> targets = new ArrayList<>();
+    private final Map<String, ItemStack> mobIcons = new HashMap<>();
+    private boolean holdingSword;
 
     FarmWarpScreen() {
         super(Component.literal("Farm Warps"));
@@ -104,6 +106,8 @@ final class FarmWarpScreen extends Screen {
         if (worldCrops.isEmpty()) {
             buildCrops();
         }
+        holdingSword = isSword(Minecraft.getInstance());
+        mobIcons.clear();
         WorldTab[] worlds = WorldTab.values();
         worldLabels = new Component[worlds.length];
         for (int i = 0; i < worlds.length; i++) {
@@ -229,10 +233,39 @@ final class FarmWarpScreen extends Screen {
         if (match.type() != TargetType.COMBAT) {
             return match.farm().icon();
         }
-        String id = match.label().trim().toLowerCase(Locale.ROOT).replace(' ', '_').replaceAll("[^a-z0-9_]", "");
-        String egg = MOB_EGG_ALIASES.getOrDefault(id, id);
-        ItemStack icon = itemStack(Items.AIR, "minecraft:" + egg + "_spawn_egg", "minecraft:" + id);
+        ItemStack icon = mobEgg(match.label());
         return icon.isEmpty() ? match.farm().icon() : icon;
+    }
+
+    private static ItemStack mobEgg(String mob) {
+        if (mob == null || mob.isBlank()) {
+            return ItemStack.EMPTY;
+        }
+        String id = mob.trim().toLowerCase(Locale.ROOT).replace(' ', '_').replaceAll("[^a-z0-9_]", "");
+        if (id.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        String egg = MOB_EGG_ALIASES.getOrDefault(id, id);
+        return itemStack(Items.AIR, "minecraft:" + egg + "_spawn_egg", "minecraft:" + id);
+    }
+
+    private static boolean isSword(Minecraft client) {
+        if (client.player == null) {
+            return false;
+        }
+        ItemStack held = client.player.getMainHandItem();
+        return !held.isEmpty() && BuiltInRegistries.ITEM.getKey(held.getItem()).getPath().endsWith("_sword");
+    }
+
+    private ItemStack icon(FarmEntry farm) {
+        if (!holdingSword) {
+            return farm.icon();
+        }
+        return mobIcons.computeIfAbsent(farm.command(), command -> {
+            FarmMobScanner.MobInfo info = FarmMobScanner.get(farm.name());
+            ItemStack egg = info == null ? ItemStack.EMPTY : mobEgg(info.mob);
+            return egg.isEmpty() ? farm.icon() : egg;
+        });
     }
 
     private FarmMatch matchFarm(String text) {
@@ -572,10 +605,10 @@ final class FarmWarpScreen extends Screen {
                     hoveredFarm = fav.farm();
                 }
                 if (!wide) {
-                    graphics.renderItem(fav.farm().icon(), favLeft + (favW - 16) / 2, ry + 2);
+                    graphics.renderItem(icon(fav.farm()), favLeft + (favW - 16) / 2, ry + 2);
                     continue;
                 }
-                graphics.renderItem(fav.farm().icon(), favLeft + 8, ry + 2);
+                graphics.renderItem(icon(fav.farm()), favLeft + 8, ry + 2);
                 int textY = ry + 6;
                 int nameX = favLeft + 28;
                 int right = favLeft + favW - 8;
@@ -653,7 +686,7 @@ final class FarmWarpScreen extends Screen {
                     hoveredCropLabel = BazzarUi.gradientText(crops.get(j).name(), world.gradFrom, world.gradTo, false);
                     hoveredFarm = crops.get(j);
                 }
-                graphics.renderItem(crops.get(j).icon(), ix, iy);
+                graphics.renderItem(icon(crops.get(j)), ix, iy);
                 if (favoriteCommands.contains(crops.get(j).command())) {
                     BazzarUi.fillCircle(graphics, ix + 16, iy, 2, 0xFF000000 | FAVORITE_GOLD);
                 }
@@ -675,7 +708,7 @@ final class FarmWarpScreen extends Screen {
         graphics.drawString(font, questsEnabled ? QUESTS_ON_LABEL : QUESTS_OFF_LABEL, quests.x(), hintY(), questsColor, false);
 
         if (draggingTarget && pressedFarm != null) {
-            graphics.renderItem(pressedFarm.icon(), mouseX - 8, mouseY - 8);
+            graphics.renderItem(icon(pressedFarm), mouseX - 8, mouseY - 8);
         } else if (hoveredCropLabel != null) {
             drawMiniTooltip(graphics, hoveredCropLabel, mobLines(hoveredFarm), mouseX, mouseY);
         }
