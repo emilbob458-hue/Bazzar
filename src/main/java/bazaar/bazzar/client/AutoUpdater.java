@@ -1,10 +1,12 @@
 package bazaar.bazzar.client;
 
+import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,7 +41,9 @@ import net.fabricmc.loader.api.VersionParsingException;
 import net.fabricmc.loader.api.metadata.ModOrigin;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 
 final class AutoUpdater {
@@ -61,8 +65,11 @@ final class AutoUpdater {
     private static final java.util.regex.Pattern MIN_VERSION_PATTERN =
             java.util.regex.Pattern.compile("(?im)^\\s*min-version:\\s*v?([0-9][0-9.]*)");
     private static final int FORCE_VERSIONS_BEHIND = 5;
-    private static final long FORCE_CLOSE_DELAY_MS = 60_000L;
     private static final long FORCE_WARN_MS = 10_000L;
+    private static final long FORCE_REMIND_MS = 30L * 60_000L;
+    private static long nextForceRemindMs;
+    // written on the updater thread, read on the client thread, like forceCloseAtMs above
+    private static volatile String forceVersion = "";
     private static volatile boolean forced;
     private static volatile long forceCloseAtMs;
     private static long nextForceWarnMs;
@@ -85,13 +92,17 @@ final class AutoUpdater {
                     .requires(source -> !BazzarGuard.isBlocked())
                     .executes(AutoUpdater::runCheck)
                     .then(literal("on").executes(ctx -> runToggle(ctx, true)))
-                    .then(literal("off").executes(ctx -> runToggle(ctx, false))));
+                    .then(literal("off").executes(ctx -> runToggle(ctx, false)))
+                    .then(literal("in").then(argument("minutes", IntegerArgumentType.integer(0, 1440))
+                            .executes(ctx -> runCloseIn(ctx, IntegerArgumentType.getInteger(ctx, "minutes"))))));
             // the mod is Bazzar but everyone types the Bazaar spelling, so answer to both
             dispatcher.register(literal("bazaarupdate")
                     .requires(source -> !BazzarGuard.isBlocked())
                     .executes(AutoUpdater::runCheck)
                     .then(literal("on").executes(ctx -> runToggle(ctx, true)))
-                    .then(literal("off").executes(ctx -> runToggle(ctx, false))));
+                    .then(literal("off").executes(ctx -> runToggle(ctx, false)))
+                    .then(literal("in").then(argument("minutes", IntegerArgumentType.integer(0, 1440))
+                            .executes(ctx -> runCloseIn(ctx, IntegerArgumentType.getInteger(ctx, "minutes"))))));
         });
     }
 
@@ -144,11 +155,16 @@ final class AutoUpdater {
                 client.stop();
                 return;
             }
-            if (client.player != null && now >= nextForceWarnMs) {
+            long left = closeAt - now;
+            if (client.player != null && left <= UpdateSchedule.FINAL_WARNING_MS && now >= nextForceWarnMs) {
                 nextForceWarnMs = now + FORCE_WARN_MS;
-                long seconds = (closeAt - now + 999L) / 1000L;
-                McCompat.showTitle(client, 0, 50, 10, Component.literal("Closing in " + seconds + "s to update Bazzar")
-                        .withStyle(ChatFormatting.RED, ChatFormatting.BOLD));
+                McCompat.showTitle(client, 0, 50, 10,
+                        Component.literal("Closing in " + ((left + 999L) / 1000L) + "s to update Bazzar")
+                                .withStyle(ChatFormatting.RED, ChatFormatting.BOLD));
+            } else if (client.player != null && left > UpdateSchedule.FINAL_WARNING_MS && now >= nextForceRemindMs) {
+                // a reminder every half hour with the buttons again, not a title every ten seconds
+                nextForceRemindMs = now + FORCE_REMIND_MS;
+                MESSAGES.add(forcePrompt(forceVersion, left, false));
             }
         }
         if (now >= nextCheckMs) {
@@ -405,9 +421,54 @@ final class AutoUpdater {
         if (forceCloseAtMs > 0L) {
             return;
         }
-        forceCloseAtMs = System.currentTimeMillis() + FORCE_CLOSE_DELAY_MS;
-        post("This Bazzar version is no longer supported. Minecraft will close in 60 seconds to install "
-                + latest + ", just open it again after.", ChatFormatting.RED);
+        long now = System.currentTimeMillis();
+        // the full day by default, so nobody is thrown out of the game without being asked
+        forceCloseAtMs = now + UpdateSchedule.MAX_DELAY_MS;
+        forceVersion = latest;
+        nextForceRemindMs = now + FORCE_REMIND_MS;
+        MESSAGES.add(forcePrompt(latest, UpdateSchedule.MAX_DELAY_MS, true));
+    }
+
+    // "install it in 4h" and friends, each one a button that sets the time
+    private static MutableComponent forcePrompt(String latest, long leftMs, boolean first) {
+        MutableComponent line = prefix().append(Component.literal(first
+                        ? "Bazzar " + latest + " is required. Minecraft has to close to install it, "
+                        + "and you pick when: " + UpdateSchedule.whenText(leftMs) + " unless you choose sooner. "
+                        : "Bazzar " + latest + " installs when Minecraft closes, " + UpdateSchedule.whenText(leftMs) + ". Sooner? ")
+                .withStyle(ChatFormatting.YELLOW));
+        for (int minutes : new int[]{0, 60, 240, 720}) {
+            line.append(button(minutes));
+        }
+        return line;
+    }
+
+    private static MutableComponent button(int minutes) {
+        String label = minutes == 0 ? "[Now]" : "[" + (minutes < 60 ? minutes + "m" : (minutes / 60) + "h") + "]";
+        return Component.literal(label + " ").withStyle(style -> style
+                .withColor(minutes == 0 ? ChatFormatting.RED : ChatFormatting.GREEN)
+                .withBold(true)
+                .withClickEvent(new ClickEvent.RunCommand("/bazzarupdate in " + minutes))
+                .withHoverEvent(new HoverEvent.ShowText(Component.literal(minutes == 0
+                        ? "Close now and install it"
+                        : "Close in " + UpdateSchedule.whenText(minutes * 60_000L).substring(3) + " and install it"))));
+    }
+
+    // a time the player picked from the buttons or typed themselves
+    private static int runCloseIn(CommandContext<FabricClientCommandSource> context, int minutes) {
+        if (forceCloseAtMs <= 0L) {
+            context.getSource().sendFeedback(prefix().append(Component.literal(
+                    "No update is waiting to install.").withStyle(ChatFormatting.GRAY)));
+            return 0;
+        }
+        long delay = UpdateSchedule.clampDelayMs(minutes * 60_000L);
+        forceCloseAtMs = System.currentTimeMillis() + delay;
+        nextForceWarnMs = 0L;
+        nextForceRemindMs = System.currentTimeMillis() + FORCE_REMIND_MS;
+        context.getSource().sendFeedback(prefix().append(Component.literal(delay == 0L
+                        ? "Closing now to install Bazzar " + forceVersion + ", just open it again after."
+                        : "Minecraft will close " + UpdateSchedule.whenText(delay) + " to install Bazzar " + forceVersion + ".")
+                .withStyle(ChatFormatting.AQUA)));
+        return 1;
     }
 
     private static void applyPending() {
