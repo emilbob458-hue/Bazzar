@@ -70,14 +70,23 @@ final class GuildShare {
                         .requires(source -> !BazzarGuard.isBlocked())
                         .executes(ctx -> {
                             String guild = guild();
-                            say(ctx.getSource().getClient(), guild.isEmpty()
-                                    ? "Guild quest sharing is off. Use /bazzarguild <your guild name>."
-                                    : "Sharing guild quests with " + guild + ". (/bazzarguild off to stop)");
+                            say(ctx.getSource().getClient(), isOff()
+                                    ? "Guild quest sharing is off. /bazzarguild on to turn it back on."
+                                    : guild.isEmpty()
+                                    ? "No guild found yet, Bazzar reads it from /guild by itself."
+                                    : "Sharing guild quests with " + guild + " (" + GuildRoster.members().size()
+                                    + " members from /guild). /bazzarguild off to stop");
                             return 1;
                         })
                         .then(literal("off").executes(ctx -> {
-                            setGuild("");
+                            setOff(true);
                             say(ctx.getSource().getClient(), "Guild quest sharing is off, /gq scans work like before.");
+                            return 1;
+                        }))
+                        .then(literal("on").executes(ctx -> {
+                            setOff(false);
+                            GuildRoster.scanSoon();
+                            say(ctx.getSource().getClient(), "Guild quest sharing is on, your guild is read from /guild.");
                             return 1;
                         }))
                         .then(literal("hud").executes(ctx -> {
@@ -93,16 +102,27 @@ final class GuildShare {
                                 say(ctx.getSource().getClient(), "Use letters, numbers and spaces, e.g. /bazzarguild Chillppl");
                                 return 0;
                             }
+                            setOff(false);
                             setGuild(guild);
                             nextPollMs = 0L;
-                            say(ctx.getSource().getClient(), "Sharing guild quests with " + guild
-                                    + ". Set the same name on your guildmates' mods.");
+                            say(ctx.getSource().getClient(), "Sharing guild quests with " + guild + ".");
                             return 1;
                         }))));
     }
 
     static boolean isActive() {
         return !guild().isEmpty();
+    }
+
+    static boolean isOff() {
+        return BazzarConfig.load().guildShareOff;
+    }
+
+    static void onGuildDetected(String guild) {
+        if (guild != null && !guild.equalsIgnoreCase(BazzarConfig.load().guildName)) {
+            setGuild(guild);
+            nextPollMs = 0L;
+        }
     }
 
     static boolean fallbackDue() {
@@ -179,20 +199,26 @@ final class GuildShare {
         if (json == null || !json.has("members")) {
             return;
         }
-        if (json.has("totals") && json.get("totals").isJsonObject()) {
-            Map<String, Long> totals = new HashMap<>();
-            for (Map.Entry<String, JsonElement> total : json.getAsJsonObject("totals").entrySet()) {
-                totals.put(total.getKey(), total.getValue().getAsLong());
-            }
-            GuildQuestScanner.onGuildTotals(totals);
-        }
         List<Worker> found = new ArrayList<>();
+        Map<String, Long> totals = new HashMap<>();
         for (JsonElement element : json.getAsJsonArray("members")) {
             JsonObject member = element.getAsJsonObject();
-            found.add(new Worker(member.get("name").getAsString(), member.get("done").getAsDouble(),
-                    member.has("afk") && member.get("afk").getAsBoolean()));
+            String name = member.get("name").getAsString();
+            if (!GuildRoster.isMember(name)) {
+                continue;
+            }
+            if (!member.has("active") || member.get("active").getAsBoolean()) {
+                found.add(new Worker(name, member.get("done").getAsDouble(),
+                        member.has("afk") && member.get("afk").getAsBoolean()));
+            }
+            if (member.has("counts") && member.get("counts").isJsonObject()) {
+                for (Map.Entry<String, JsonElement> count : member.getAsJsonObject("counts").entrySet()) {
+                    totals.merge(count.getKey(), count.getValue().getAsLong(), Long::sum);
+                }
+            }
         }
         workers = found;
+        GuildQuestScanner.onGuildTotals(totals);
     }
 
     private static void onShared(Minecraft client, String guild, JsonObject json) {
@@ -263,8 +289,20 @@ final class GuildShare {
     }
 
     private static String guild() {
-        String guild = BazzarConfig.load().guildName;
-        return guild == null ? "" : guild.trim();
+        BazzarConfig.State state = BazzarConfig.load();
+        if (state.guildShareOff || state.guildName == null) {
+            return "";
+        }
+        return state.guildName.trim();
+    }
+
+    private static void setOff(boolean off) {
+        BazzarConfig.State state = BazzarConfig.load();
+        state.guildShareOff = off;
+        BazzarConfig.save(state);
+        nextPollMs = 0L;
+        nextWorkersMs = 0L;
+        workers = List.of();
     }
 
     private static void setGuild(String guild) {

@@ -401,6 +401,7 @@ final class BazzarConfig {
         int cbHudX = 6;
         int cbHudY = 100;
         String guildName = "";
+        boolean guildShareOff = false;
         boolean guildWorkHudVisible = false;
         int guildWorkHudX = 6;
         int guildWorkHudY = 140;

@@ -89,7 +89,7 @@ final class GuildQuestScanner {
     }
 
     static void triggerAuto(Minecraft client) {
-        if (!autoScanEnabled) {
+        if (!autoScanEnabled || GuildRoster.isScanning()) {
             return;
         }
         long now = System.currentTimeMillis();

@@ -211,6 +211,7 @@ public class BazzarClient implements ClientModInitializer {
             CelestialMarket.tick(client);
             CelestialMarketHud.tick(client);
             GuildShare.tick(client);
+            GuildRoster.tick(client);
             CelestialTracker.tick(client);
             Announcements.tick(client);
             MultiplierMenuScanner.tick(client);
