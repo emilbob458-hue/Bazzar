@@ -122,6 +122,7 @@ final class FarmMobScanner {
     private static boolean pendingOpen = false;
     private static boolean reopenWarpScreen = false;
     private static boolean autoTried = false;
+    private static boolean fishAfter = false;
     private static final Map<String, MobInfo> collected = new LinkedHashMap<>();
     // the Infernal Citadel farms aren't in /warpfarm, so their info is copied from the farm warp menu
     private static final Map<String, MobInfo> BUILT_IN = new LinkedHashMap<>();
@@ -216,6 +217,10 @@ final class FarmMobScanner {
 
     static boolean isScanning() {
         return state != State.IDLE;
+    }
+
+    static void scanFishAfter() {
+        fishAfter = true;
     }
 
     static boolean shouldAutoScan() {
@@ -343,6 +348,12 @@ final class FarmMobScanner {
         collected.clear();
         if (menuScreen(client) != null) {
             McCompat.setScreen(client, null);
+        }
+        if (fishAfter) {
+            fishAfter = false;
+            if (FishWarps.startScan(client)) {
+                return;
+            }
         }
         if (reopen && McCompat.screen(client) == null) {
             McCompat.setScreen(client, new FarmWarpScreen());
