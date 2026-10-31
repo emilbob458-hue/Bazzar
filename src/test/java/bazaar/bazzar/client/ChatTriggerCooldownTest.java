@@ -51,6 +51,15 @@ class ChatTriggerCooldownTest {
     }
 
     @Test
+    void onlyLaunchtizzleWaitsForTheAltsTurn() {
+        assertEquals(10_000L, ChatCommandTriggerController.staggerDelayMs("launchtizzle", 2));
+        assertEquals(5_000L, ChatCommandTriggerController.staggerDelayMs("/LaunchTizzle", 1));
+        assertEquals(0L, ChatCommandTriggerController.staggerDelayMs("alts drop", 3));
+        assertEquals(0L, ChatCommandTriggerController.staggerDelayMs("cookie suspicious", 1));
+        assertEquals(0L, ChatCommandTriggerController.staggerDelayMs(null, 1));
+    }
+
+    @Test
     void theOwnerGoesFirstThenTheMembersInOrder() {
         assertEquals(0, indexOf("Main", "Main", "AltOne", "AltTwo"));
         assertEquals(1, indexOf("AltOne", "Main", "AltOne", "AltTwo"));

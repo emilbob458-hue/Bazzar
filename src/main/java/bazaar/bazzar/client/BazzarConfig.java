@@ -89,6 +89,9 @@ final class BazzarConfig {
         if (state.fishWarps == null) {
             state.fishWarps = new ArrayList<>();
         }
+        if (state.fishWarpScan == null) {
+            state.fishWarpScan = new ArrayList<>();
+        }
         if (state.chatTriggerMessages == null) {
             state.chatTriggerMessages = new ArrayList<>(List.of("", "", "", "", "", "", "", ""));
         }
@@ -286,6 +289,9 @@ final class BazzarConfig {
         if (loaded.fishWarps == null) {
             loaded.fishWarps = new ArrayList<>();
         }
+        if (loaded.fishWarpScan == null) {
+            loaded.fishWarpScan = new ArrayList<>();
+        }
         if (loaded.celestialBoosterReadyAt == null) {
             loaded.celestialBoosterReadyAt = new HashMap<>();
         }
@@ -328,6 +334,7 @@ final class BazzarConfig {
         List<String> cropBlacklist = new ArrayList<>();
         List<String> farmFavorites = new ArrayList<>();
         List<String> fishWarps = new ArrayList<>();
+        List<String> fishWarpScan = new ArrayList<>();
         int farmFavX = -1;
         int farmFavY = -1;
         boolean farmQuestsEnabled = true;

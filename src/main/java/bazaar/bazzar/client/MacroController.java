@@ -1,8 +1,16 @@
 package bazaar.bazzar.client;
 
 import java.util.List;
+import java.util.Locale;
 
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 
 final class MacroController {
     static final int KEY_MACRO_COUNT = 8;
@@ -68,9 +76,32 @@ final class MacroController {
             return;
         }
         if (trimmed.startsWith("/")) {
-            CommandSender.send(client, trimmed);
+            String command = CommandSender.clean(trimmed);
+            if (!runClientCommand(client, command)) {
+                CommandSender.send(client, command);
+            }
         } else {
             client.player.connection.sendChat(trimmed);
         }
+    }
+
+    static boolean runClientCommand(Minecraft client, String command) {
+        CommandDispatcher<FabricClientCommandSource> dispatcher = ClientCommandManager.getActiveDispatcher();
+        if (dispatcher == null || command == null || command.isBlank()
+                || client == null || client.player == null || client.player.connection == null) {
+            return false;
+        }
+        String trimmed = command.trim();
+        String root = trimmed.split("\\s+", 2)[0].toLowerCase(Locale.ROOT);
+        if (dispatcher.getRoot().getChild(root) == null) {
+            return false;
+        }
+        try {
+            dispatcher.execute(trimmed, (FabricClientCommandSource) client.player.connection.getSuggestionsProvider());
+        } catch (CommandSyntaxException e) {
+            McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal("/" + trimmed + ": " + e.getMessage())
+                    .withStyle(ChatFormatting.RED)));
+        }
+        return true;
     }
 }

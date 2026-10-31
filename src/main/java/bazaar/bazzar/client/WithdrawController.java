@@ -3,6 +3,8 @@ package bazaar.bazzar.client;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -37,6 +39,7 @@ import org.lwjgl.glfw.GLFW;
 final class WithdrawController {
     private enum State {
         IDLE,
+        WAIT_NEXT,
         WAIT_BACKPACK,
         SEARCH,
         WAIT_PAGE,
@@ -49,7 +52,9 @@ final class WithdrawController {
         MOB_DROPS
     }
 
+    private static final String USAGE = "Usage: /withdraw <item or world> [amount]";
     private static final int SETTLE_TICKS = 4;
+    private static final int BETWEEN_ITEMS_TICKS = 10;
     private static final int GUI_TIMEOUT_TICKS = 100;
     private static final int PAGE_TIMEOUT_TICKS = 40;
     private static final int DIALOG_TIMEOUT_TICKS = 80;
@@ -71,6 +76,10 @@ final class WithdrawController {
     private static String targetName = "";
     private static String targetKey = "";
     private static String amount = null;
+    private static final ArrayDeque<String> upcoming = new ArrayDeque<>();
+    private static final List<String> withdrawn = new ArrayList<>();
+    private static final List<String> missed = new ArrayList<>();
+    private static String batchName = null;
 
     private WithdrawController() {
     }
@@ -80,13 +89,18 @@ final class WithdrawController {
                 literal("withdraw")
                         .requires(source -> !BazzarGuard.isBlocked())
                         .executes(ctx -> {
-                            ctx.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal("Usage: /withdraw <item> [amount]")
+                            ctx.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal(USAGE)
                                     .withStyle(ChatFormatting.YELLOW)));
                             return 1;
                         })
                         .then(argument("item", StringArgumentType.greedyString())
                                 .suggests((ctx, builder) -> {
                                     String typed = builder.getRemaining().toLowerCase(Locale.ROOT);
+                                    for (String name : FarmWarpScreen.worldNames()) {
+                                        if (name.toLowerCase(Locale.ROOT).startsWith(typed)) {
+                                            builder.suggest(name);
+                                        }
+                                    }
                                     for (String name : KNOWN_NAMES) {
                                         if (name.toLowerCase(Locale.ROOT).startsWith(typed)) {
                                             builder.suggest(name);
@@ -107,23 +121,57 @@ final class WithdrawController {
             String value = matcher.group(2);
             requested = value.equalsIgnoreCase("all") ? null : value.replace(",", "").toUpperCase(Locale.ROOT);
         }
-        String key = key(item);
-        if (key.isEmpty()) {
-            ctx.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal("Usage: /withdraw <item> [amount]")
+        if (key(item).isEmpty()) {
+            ctx.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal(USAGE)
                     .withStyle(ChatFormatting.YELLOW)));
             return 0;
         }
-        targetName = item;
-        targetKey = key;
+        upcoming.clear();
+        withdrawn.clear();
+        missed.clear();
         amount = requested;
-        phases = MOB_DROP_KEYS.contains(key)
+        String world = FarmWarpScreen.worldName(item);
+        if (world != null) {
+            batchName = world;
+            upcoming.addAll(FarmWarpScreen.cropNames(world));
+            ctx.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal("Withdrawing "
+                    + (amount == null ? "all" : amount) + " of each crop in " + world + " (" + upcoming.size() + " items)...")
+                    .withStyle(ChatFormatting.AQUA)));
+        } else {
+            batchName = null;
+            upcoming.add(item);
+            ctx.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal("Withdrawing "
+                    + (amount == null ? "all " : amount + " ") + item + "...").withStyle(ChatFormatting.AQUA)));
+        }
+        startNext(Minecraft.getInstance());
+        return 1;
+    }
+
+    private static void startNext(Minecraft client) {
+        String item = upcoming.pollFirst();
+        if (item == null) {
+            state = State.IDLE;
+            if (batchName != null && client.player != null) {
+                String text = "Withdrew " + (amount == null ? "all" : amount) + " of " + withdrawn.size() + " crops from " + batchName + "."
+                        + (missed.isEmpty() ? "" : " Not found: " + String.join(", ", missed) + ".");
+                McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal(text)
+                        .withStyle(missed.isEmpty() ? ChatFormatting.AQUA : ChatFormatting.YELLOW)));
+            }
+            batchName = null;
+            return;
+        }
+        targetName = item;
+        targetKey = key(item);
+        phases = MOB_DROP_KEYS.contains(targetKey)
                 ? new Phase[]{Phase.MOB_DROPS, Phase.MAIN}
                 : new Phase[]{Phase.MAIN, Phase.MOB_DROPS};
         phaseIndex = 0;
-        openBackpack(Minecraft.getInstance());
-        ctx.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal("Withdrawing "
-                + (amount == null ? "all " : amount + " ") + item + "...").withStyle(ChatFormatting.AQUA)));
-        return 1;
+        if (withdrawn.isEmpty() && missed.isEmpty()) {
+            openBackpack(client);
+        } else {
+            settleTicks = BETWEEN_ITEMS_TICKS;
+            state = State.WAIT_NEXT;
+        }
     }
 
     static void tick(Minecraft client) {
@@ -135,6 +183,11 @@ final class WithdrawController {
             return;
         }
         switch (state) {
+            case WAIT_NEXT -> {
+                if (--settleTicks <= 0) {
+                    openBackpack(client);
+                }
+            }
             case WAIT_BACKPACK -> tickWaitBackpack(client);
             case SEARCH -> tickSearch(client);
             case WAIT_PAGE -> tickWaitPage(client);
@@ -224,7 +277,15 @@ final class WithdrawController {
 
     private static void nextPhase(Minecraft client) {
         if (++phaseIndex >= phases.length) {
-            fail(client, "Couldn't find " + targetName + " in your backpack.");
+            if (batchName != null) {
+                missed.add(targetName);
+                if (client.player != null) {
+                    client.player.closeContainer();
+                }
+                startNext(client);
+            } else {
+                fail(client, "Couldn't find " + targetName + " in your backpack.");
+            }
             return;
         }
         openBackpack(client);
@@ -285,6 +346,11 @@ final class WithdrawController {
         }
         button.onPress(new KeyEvent(GLFW.GLFW_KEY_ENTER, 0, 0));
         client.player.closeContainer();
+        if (batchName != null) {
+            withdrawn.add(targetName);
+            startNext(client);
+            return;
+        }
         state = State.IDLE;
         McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal("Withdrew "
                 + (amount == null ? "all " : amount + " ") + targetName + ".").withStyle(ChatFormatting.AQUA)));
@@ -292,6 +358,8 @@ final class WithdrawController {
 
     private static void fail(Minecraft client, String message) {
         state = State.IDLE;
+        upcoming.clear();
+        batchName = null;
         if (client.player != null) {
             McCompat.chat(client.player,
                     BazaarChat.prefix().append(Component.literal(message).withStyle(ChatFormatting.RED)));

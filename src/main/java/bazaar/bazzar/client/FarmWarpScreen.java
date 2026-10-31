@@ -44,6 +44,7 @@ final class FarmWarpScreen extends Screen {
     private static final String DROP_HINT = "Drop to favorite";
     private static final String SCAN_LABEL = "Scan mobs";
     private static final String RESCAN_LABEL = "Rescan mobs";
+    private static final String FISH_SCAN_LABEL = "Scan fish";
     private static final String QUESTS_ON_LABEL = "Quests: On";
     private static final String QUESTS_OFF_LABEL = "Quests: Off";
     private static final int FAVORITE_GOLD = 0xFFD75A;
@@ -104,7 +105,7 @@ final class FarmWarpScreen extends Screen {
     @Override
     protected void init() {
         if (worldCrops.isEmpty()) {
-            buildCrops();
+            buildCrops(worldCrops);
         }
         holdingSword = isSword(Minecraft.getInstance());
         mobIcons.clear();
@@ -359,7 +360,7 @@ final class FarmWarpScreen extends Screen {
         int hintW = font.width(WORLD_HINT);
         int needed = font.width(getTitle()) + 48;
         needed = Math.max(needed, 16 + font.width(FAVORITE_HINT) + 12 + font.width(QUESTS_OFF_LABEL) + 10
-                + font.width(RESCAN_LABEL) + 10);
+                + font.width(RESCAN_LABEL) + 10 + font.width(FISH_SCAN_LABEL) + 10);
         WorldTab[] worlds = WorldTab.values();
         for (int i = 0; i < worlds.length; i++) {
             int nameRowW = 16 + font.width(worldLabels[i]) + 12 + hintW + 10;
@@ -474,7 +475,46 @@ final class FarmWarpScreen extends Screen {
         }
     }
 
-    private void buildCrops() {
+    static List<String> worldNames() {
+        List<String> names = new ArrayList<>();
+        for (WorldTab world : WorldTab.values()) {
+            if (world != WorldTab.FISHING) {
+                names.add(world.displayName);
+            }
+        }
+        return names;
+    }
+
+    static String worldName(String query) {
+        String wanted = query == null ? "" : query.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        WorldTab[] worlds = WorldTab.values();
+        for (int i = 0; i < worlds.length; i++) {
+            if (worlds[i] == WorldTab.FISHING) {
+                continue;
+            }
+            String name = worlds[i].displayName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+            if (wanted.equals(name) || wanted.equals("world" + (i + 1))) {
+                return worlds[i].displayName;
+            }
+        }
+        return null;
+    }
+
+    static List<String> cropNames(String worldDisplayName) {
+        Map<WorldTab, List<FarmEntry>> crops = new EnumMap<>(WorldTab.class);
+        buildCrops(crops);
+        List<String> names = new ArrayList<>();
+        for (Map.Entry<WorldTab, List<FarmEntry>> entry : crops.entrySet()) {
+            if (entry.getKey().displayName.equals(worldDisplayName)) {
+                for (FarmEntry farm : entry.getValue()) {
+                    names.add(farm.name());
+                }
+            }
+        }
+        return names;
+    }
+
+    private static void buildCrops(Map<WorldTab, List<FarmEntry>> worldCrops) {
         worldCrops.put(WorldTab.OVERWORLD, List.of(
                 farm("Wheat", "farms wheat", new ItemStack(Items.WHEAT)),
                 farm("Carrot", "farms carrot", new ItemStack(Items.CARROT)),
@@ -543,6 +583,10 @@ final class FarmWarpScreen extends Screen {
     }
 
     private static ItemStack fishIcon(String spot) {
+        ItemStack scanned = FishWarps.scannedIcon(spot);
+        if (scanned != null) {
+            return scanned;
+        }
         return new ItemStack(switch (spot) {
             case "mackerel" -> Items.SALMON;
             case "seabass" -> Items.TROPICAL_FISH;
@@ -702,6 +746,9 @@ final class FarmWarpScreen extends Screen {
         String scanLabel = FarmMobScanner.hasData() ? RESCAN_LABEL : SCAN_LABEL;
         int scanColor = isInside(mouseX, mouseY, scan) ? 0xFF000000 | (theme.light() & 0xFFFFFF) : 0xFF8E97A6;
         graphics.drawString(font, scanLabel, scan.x(), hintY(), scanColor, false);
+        ButtonBounds fishScan = fishScanBounds();
+        int fishScanColor = isInside(mouseX, mouseY, fishScan) ? 0xFF000000 | (theme.light() & 0xFFFFFF) : 0xFF8E97A6;
+        graphics.drawString(font, FISH_SCAN_LABEL, fishScan.x(), hintY(), fishScanColor, false);
         ButtonBounds quests = questsBounds();
         int questsColor = isInside(mouseX, mouseY, quests) ? 0xFF000000 | (theme.light() & 0xFFFFFF)
                 : questsEnabled ? DONE_GREEN : MUTED;
@@ -788,6 +835,10 @@ final class FarmWarpScreen extends Screen {
 
         if (!rightClick && isInside(mouseX, mouseY, scanBounds())) {
             FarmMobScanner.start(Minecraft.getInstance(), true);
+            return true;
+        }
+        if (!rightClick && isInside(mouseX, mouseY, fishScanBounds())) {
+            FishWarps.startScan(Minecraft.getInstance());
             return true;
         }
         if (!rightClick && isInside(mouseX, mouseY, questsBounds())) {
@@ -922,9 +973,14 @@ final class FarmWarpScreen extends Screen {
         return new ButtonBounds(left + panelW - 10 - w, hintY() - 1, w, 11);
     }
 
+    private ButtonBounds fishScanBounds() {
+        int w = font.width(FISH_SCAN_LABEL);
+        return new ButtonBounds(scanBounds().x() - 10 - w, hintY() - 1, w, 11);
+    }
+
     private ButtonBounds questsBounds() {
         int w = font.width(questsEnabled ? QUESTS_ON_LABEL : QUESTS_OFF_LABEL);
-        return new ButtonBounds(scanBounds().x() - 10 - w, hintY() - 1, w, 11);
+        return new ButtonBounds(fishScanBounds().x() - 10 - w, hintY() - 1, w, 11);
     }
 
     private int sectionY(int index) {

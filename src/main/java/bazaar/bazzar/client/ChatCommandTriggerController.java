@@ -136,8 +136,7 @@ final class ChatCommandTriggerController {
                     || recentFires.size() >= MAX_FIRES_PER_WINDOW || sendQueue.size() >= MAX_QUEUED) {
                 continue;
             }
-            // each account waits its turn, so the alts fire one after another down the list
-            long readyAt = now + staggerDelayMs(altIndex(client));
+            long readyAt = now + staggerDelayMs(cmd, altIndex(client));
             boolean queued = false;
             for (String part : cmd.split(";")) {
                 String trimmed = part.trim();
@@ -166,6 +165,10 @@ final class ChatCommandTriggerController {
     // the first account goes straight away, the next waits one cooldown, and so on down the list
     static long staggerDelayMs(int altIndex) {
         return Math.max(0, altIndex) * COOLDOWN_MS;
+    }
+
+    static long staggerDelayMs(String command, int altIndex) {
+        return command != null && command.toLowerCase(Locale.ROOT).contains("launchtizzle") ? staggerDelayMs(altIndex) : 0L;
     }
 
     // where this account sits in the alt list: the owner first, then whichever member slots are
@@ -224,7 +227,9 @@ final class ChatCommandTriggerController {
         }
         sendQueue.pollFirst();
         if (!next.command().isBlank()) {
-            CommandSender.send(client, next.command());
+            if (!MacroController.runClientCommand(client, next.command())) {
+                CommandSender.send(client, next.command());
+            }
         }
         ticksUntilNextSend = SEND_SPACING_TICKS;
     }
