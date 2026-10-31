@@ -1,6 +1,10 @@
 package bazaar.bazzar.client;
 
+import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -8,22 +12,21 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 
-// who in the guild is actually doing the guild quests: every member's mod reports the kills and farms
-// it counted for the current set of quests, so the list shows the workers and the ones just standing there
 final class GuildWorkHud {
-    private static final int BASE_WIDTH = 150;
+    private static final int BASE_WIDTH = 170;
     private static final int HEADER_HEIGHT = 13;
     private static final int ROW_HEIGHT = 11;
-    private static final int FOOTER_HEIGHT = 9;
-    private static final int MAX_ROWS = 8;
+    private static final int LABEL_HEIGHT = 10;
+    private static final long RATE_WINDOW_MS = 60L * 60_000L;
+    private static final long MIN_RATE_SPAN_MS = 10L * 60_000L;
+    private static final long ACTIVE_MS = 30_000L;
+    private static final Map<String, Tracked> TRACKED = new HashMap<>();
 
     private static final int PANEL_BG = 0xE00C0E12;
     private static final int PANEL_EDGE = 0x1FFFFFFF;
-    private static final int BAR_BG = 0x33FFFFFF;
     private static final int NAME_COLOR = 0xFFF1F3F5;
     private static final int VALUE_COLOR = 0xFF86EFAC;
     private static final int MUTED_TEXT = 0xFFB4BCC8;
-    private static final int IDLE_TEXT = 0xFF6F7784;
 
     private static boolean visible = false;
     private static float scale = 1.0f;
@@ -34,6 +37,7 @@ final class GuildWorkHud {
     private static int dragOffsetX = 0;
     private static int dragOffsetY = 0;
     private static boolean dirty = false;
+    private static int height = HEADER_HEIGHT + ROW_HEIGHT;
 
     private GuildWorkHud() {
     }
@@ -48,16 +52,79 @@ final class GuildWorkHud {
         return visible;
     }
 
+    static void onWorkers(List<GuildShare.Worker> workers) {
+        long now = System.currentTimeMillis();
+        for (GuildShare.Worker worker : workers) {
+            Tracked tracked = TRACKED.computeIfAbsent(worker.name().toLowerCase(Locale.ROOT), key -> new Tracked());
+            long done = Math.round(worker.done());
+            long gained = tracked.seen ? (done >= tracked.lastDone ? done - tracked.lastDone : done) : 0L;
+            tracked.seen = true;
+            tracked.lastDone = done;
+            tracked.total += gained;
+            tracked.lastSeenMs = now;
+            tracked.samples.addLast(new long[]{now, tracked.total});
+            while (tracked.samples.size() > 1 && now - tracked.samples.peekFirst()[0] > RATE_WINDOW_MS) {
+                tracked.samples.pollFirst();
+            }
+            if (gained > 0L) {
+                tracked.activeAtMs = now;
+                String quest = busiestQuest(tracked.lastCounts, worker.counts());
+                if (quest != null) {
+                    tracked.questKey = quest;
+                }
+            }
+            tracked.lastCounts = worker.counts();
+        }
+        TRACKED.values().removeIf(tracked -> now - tracked.lastSeenMs > RATE_WINDOW_MS);
+    }
+
+    private static String busiestQuest(Map<String, Long> before, Map<String, Long> after) {
+        String best = null;
+        long bestGain = 0L;
+        for (Map.Entry<String, Long> count : after.entrySet()) {
+            long gain = count.getValue() - before.getOrDefault(count.getKey(), 0L);
+            if (gain > bestGain) {
+                bestGain = gain;
+                best = count.getKey();
+            }
+        }
+        return best;
+    }
+
     static void render(GuiGraphics graphics, int mouseX, int mouseY) {
         HudBoxes.hide("guildwork");
         Minecraft client = Minecraft.getInstance();
         if (!visible || client == null || client.player == null || client.level == null) {
             return;
         }
-        List<GuildShare.Worker> workers = GuildShare.workers();
-        String note = note(workers);
-        int rows = note != null ? 1 : Math.min(MAX_ROWS, workers.size());
-        int height = HEADER_HEIGHT + (rows * ROW_HEIGHT) + FOOTER_HEIGHT;
+        long now = System.currentTimeMillis();
+        String note = note();
+        GuildShare.Worker top = null;
+        double topRate = 0d;
+        GuildShare.Worker active = null;
+        long activeAt = 0L;
+        int activeCount = 0;
+        if (note == null) {
+            for (GuildShare.Worker worker : GuildShare.workers()) {
+                Tracked tracked = TRACKED.get(worker.name().toLowerCase(Locale.ROOT));
+                if (tracked == null) {
+                    continue;
+                }
+                double rate = tracked.perHour(now);
+                if (rate > topRate) {
+                    topRate = rate;
+                    top = worker;
+                }
+                if (now - tracked.activeAtMs <= ACTIVE_MS) {
+                    activeCount++;
+                    if (tracked.activeAtMs > activeAt) {
+                        activeAt = tracked.activeAtMs;
+                        active = worker;
+                    }
+                }
+            }
+        }
+        height = note != null ? HEADER_HEIGHT + ROW_HEIGHT : HEADER_HEIGHT + ROW_HEIGHT + LABEL_HEIGHT + ROW_HEIGHT;
         int scaledWidth = Math.round(BASE_WIDTH * scale);
         int scaledHeight = Math.round(height * scale);
 
@@ -73,7 +140,7 @@ final class GuildWorkHud {
 
         BazzarUi.fillRoundedRect(graphics, -3, -2, BASE_WIDTH + 6, height + 4, 3, PANEL_EDGE);
         BazzarUi.fillRoundedRect(graphics, -2, -1, BASE_WIDTH + 4, height + 2, 3, PANEL_BG);
-        drawScaledText(graphics, font, "GUILD QUESTS · WHO'S ON IT", 0, 2, theme.light(), 0.75f);
+        drawScaledText(graphics, font, "GUILD QUESTS · MOST PER HOUR", 0, 2, theme.light(), 0.75f);
 
         if (note != null) {
             graphics.drawString(font, note, 0, HEADER_HEIGHT, MUTED_TEXT, false);
@@ -82,44 +149,57 @@ final class GuildWorkHud {
         }
 
         String self = client.player.getName().getString();
-        double top = Math.max(1d, workers.get(0).done());
-        for (int i = 0; i < rows; i++) {
-            GuildShare.Worker worker = workers.get(i);
-            int rowY = HEADER_HEIGHT + (i * ROW_HEIGHT);
-            boolean working = worker.done() > 0d;
-            // a bar as wide as their share of the busiest member's count, so the workers stand out at a glance
-            if (working) {
-                int barWidth = (int) Math.max(1d, (BASE_WIDTH - 1) * worker.done() / top);
-                graphics.fill(0, rowY + 9, barWidth, rowY + 10, worker.name().equalsIgnoreCase(self)
-                        ? theme.accent() : BAR_BG);
-            }
-            String value = working ? SbText.formatCompact(worker.done()) : worker.afk() ? "afk" : "nothing yet";
+        int rowY = HEADER_HEIGHT;
+        if (top == null) {
+            graphics.drawString(font, "Nobody has done any this hour", 0, rowY, MUTED_TEXT, false);
+        } else {
+            String value = SbText.formatCompact(topRate) + "/h";
             int valueX = BASE_WIDTH - font.width(value);
-            graphics.drawString(font, value, valueX, rowY, working ? VALUE_COLOR : IDLE_TEXT, false);
-            String name = font.plainSubstrByWidth(worker.name(), valueX - 4);
+            graphics.drawString(font, value, valueX, rowY, VALUE_COLOR, false);
+            String name = font.plainSubstrByWidth(top.name(), valueX - 4);
             graphics.drawString(font, name, 0, rowY,
-                    worker.name().equalsIgnoreCase(self) ? theme.accent() : working ? NAME_COLOR : IDLE_TEXT, false);
+                    top.name().equalsIgnoreCase(self) ? theme.accent() : NAME_COLOR, false);
         }
 
-        double total = 0d;
-        int busy = 0;
-        for (GuildShare.Worker worker : workers) {
-            total += worker.done();
-            if (worker.done() > 0d) {
-                busy++;
+        drawScaledText(graphics, font, "ON A QUEST NOW", 0, HEADER_HEIGHT + ROW_HEIGHT + 2, theme.light(), 0.75f);
+        rowY = HEADER_HEIGHT + ROW_HEIGHT + LABEL_HEIGHT;
+        if (active == null) {
+            graphics.drawString(font, "Nobody right now", 0, rowY, MUTED_TEXT, false);
+        } else {
+            Tracked tracked = TRACKED.get(active.name().toLowerCase(Locale.ROOT));
+            String quest = tracked == null ? null : questName(tracked.questKey);
+            String who = font.plainSubstrByWidth(activeCount > 1 ? active.name() + " +" + (activeCount - 1) : active.name(),
+                    BASE_WIDTH);
+            int questRoom = BASE_WIDTH - font.width(who) - 6;
+            if (quest != null && questRoom > 20) {
+                String shown = font.plainSubstrByWidth(quest, questRoom);
+                graphics.drawString(font, shown, BASE_WIDTH - font.width(shown), rowY, MUTED_TEXT, false);
             }
+            graphics.drawString(font, who, 0, rowY,
+                    active.name().equalsIgnoreCase(self) ? theme.accent() : NAME_COLOR, false);
         }
-        drawScaledText(graphics, font, busy + " of " + workers.size() + " working · " + SbText.formatCompact(total) + " counted",
-                0, HEADER_HEIGHT + (rows * ROW_HEIGHT) + 1, MUTED_TEXT, 0.75f);
         graphics.pose().popMatrix();
     }
 
-    // what to say instead of a list; null means there is a list to show
-    private static String note(List<GuildShare.Worker> workers) {
-        if (!GuildShare.isActive()) {
-            return "Set /bazzarguild <name> first.";
+    private static String questName(String poolKey) {
+        if (poolKey == null) {
+            return null;
         }
-        return workers.isEmpty() ? "Waiting for guildmates..." : null;
+        int colon = poolKey.indexOf(':');
+        String key = colon >= 0 ? poolKey.substring(0, colon) : poolKey;
+        for (GuildQuestScanner.QuestEntry entry : GuildQuestScanner.getLastEntries()) {
+            if (entry.name().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "").equals(key)) {
+                return entry.name();
+            }
+        }
+        return null;
+    }
+
+    private static String note() {
+        if (!GuildShare.isActive()) {
+            return GuildShare.isOff() ? "Sharing is off, /bazzarguild on" : "Reading your guild from /guild...";
+        }
+        return null;
     }
 
     private static void drawScaledText(GuiGraphics graphics, Font font, String text, int x, int y, int color, float textScale) {
@@ -176,9 +256,8 @@ final class GuildWorkHud {
 
     private static boolean isHovering(int mouseX, int mouseY) {
         int width = Math.round(BASE_WIDTH * scale);
-        int rows = Math.max(1, Math.min(MAX_ROWS, GuildShare.workers().size()));
-        int height = Math.round((HEADER_HEIGHT + (rows * ROW_HEIGHT) + FOOTER_HEIGHT) * scale);
-        return mouseX >= hudX && mouseX <= hudX + width && mouseY >= hudY && mouseY <= hudY + height;
+        int scaledHeight = Math.round(height * scale);
+        return mouseX >= hudX && mouseX <= hudX + width && mouseY >= hudY && mouseY <= hudY + scaledHeight;
     }
 
     private static int clamp(int value, int min, int max) {
@@ -212,5 +291,28 @@ final class GuildWorkHud {
         }
         dirty = false;
         return true;
+    }
+
+    private static final class Tracked {
+        private final ArrayDeque<long[]> samples = new ArrayDeque<>();
+        private Map<String, Long> lastCounts = Map.of();
+        private boolean seen = false;
+        private long lastDone = 0L;
+        private long total = 0L;
+        private long lastSeenMs = 0L;
+        private long activeAtMs = 0L;
+        private String questKey = null;
+
+        private double perHour(long now) {
+            if (samples.isEmpty()) {
+                return 0d;
+            }
+            long[] first = samples.peekFirst();
+            long gained = total - first[1];
+            if (gained <= 0L) {
+                return 0d;
+            }
+            return gained * 3_600_000d / Math.max(MIN_RATE_SPAN_MS, now - first[0]);
+        }
     }
 }

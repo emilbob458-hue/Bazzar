@@ -18,7 +18,7 @@ final class FishWarps {
     static final String COMMAND = "fish";
     private static final int CHECK_INTERVAL_TICKS = 40;
     // a long row of icons would push the farm warp panel past its maximum width
-    private static final int MAX_SPOTS = 14;
+    private static final int MAX_SPOTS = 18;
     private static final Map<String, String> KNOWN = new LinkedHashMap<>();
 
     static {
@@ -26,6 +26,18 @@ final class FishWarps {
         KNOWN.put("mackerel", "Mackerel");
         KNOWN.put("seabass", "Sea Bass");
         KNOWN.put("bluefin", "Bluefin");
+        KNOWN.put("koi", "Koi");
+        KNOWN.put("redseabream", "Red Sea Bream");
+        KNOWN.put("unagieel", "Unagi Eel");
+        KNOWN.put("dragoncarp", "Dragon Carp");
+        KNOWN.put("clownfish", "Clownfish");
+        KNOWN.put("lionfish", "Lionfish");
+        KNOWN.put("barracuda", "Barracuda");
+        KNOWN.put("bluemarlin", "Blue Marlin");
+        KNOWN.put("tilapia", "Tilapia");
+        KNOWN.put("bluegill", "Bluegill");
+        KNOWN.put("rivercatfish", "River Catfish");
+        KNOWN.put("tigerfish", "Tigerfish");
     }
 
     private static List<String> discovered = List.of();

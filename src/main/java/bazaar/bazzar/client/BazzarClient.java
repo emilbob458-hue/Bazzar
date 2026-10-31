@@ -279,6 +279,7 @@ public class BazzarClient implements ClientModInitializer {
             ShadySummonerFinder.onChatLine(msg);
             AutoEggController.onChatLine(client, msg);
             ChatCommandTriggerController.onChatLine(client, msg, null);
+            TradeTracker.onChatLine(msg);
             CobblePayoutController.onChatLine(client, msg);
             ShardPayoutController.onChatLine(client, msg);
             GemPayoutController.onChatLine(client, msg);

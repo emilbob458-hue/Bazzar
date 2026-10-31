@@ -49,16 +49,17 @@ final class GuildShare {
     private static final Queue<Runnable> MAIN_THREAD = new ConcurrentLinkedQueue<>();
 
     private static long nextPollMs = 0L;
+    private static long seenAnnouncementMs = 0L;
     private static long nextWorkersMs = 0L;
     private static long lastAppliedUpdated = 0L;
     private static long staleSinceMs = 0L;
     private static boolean claiming = false;
-    private static long workCycle = 0L;
+    private static int workCycle = 0;
     private static double myWork = 0d;
     private static List<Worker> workers = List.of();
 
     // a guildmate running Bazzar and how much of the current quests they've done
-    record Worker(String name, double done, boolean afk) {
+    record Worker(String name, double done, boolean afk, Map<String, Long> counts) {
     }
 
     private GuildShare() {
@@ -140,6 +141,11 @@ final class GuildShare {
         if (guild.isEmpty() || client.player == null || client.getCurrentServer() == null) {
             return;
         }
+        long announced = GuildQuestScanner.newQuestsAnnouncedAtMs();
+        if (announced != seenAnnouncementMs) {
+            seenAnnouncementMs = announced;
+            nextPollMs = Math.min(nextPollMs, now + 4_000L);
+        }
         if (now >= nextWorkersMs) {
             nextWorkersMs = now + WORKERS_MS;
             reportWork(client, guild);
@@ -172,7 +178,7 @@ final class GuildShare {
     // the kills and farms this mod counted, kept per set of quests so it starts over when they refresh
     private static void trackWork() {
         double gained = GuildQuestScanner.consumeLiveContribution();
-        long cycle = GuildQuestScanner.questsRefreshAtMs();
+        int cycle = GuildQuestScanner.questCycle();
         if (cycle != workCycle) {
             workCycle = cycle;
             myWork = 0d;
@@ -207,17 +213,20 @@ final class GuildShare {
             if (!GuildRoster.isMember(name)) {
                 continue;
             }
-            if (!member.has("active") || member.get("active").getAsBoolean()) {
-                found.add(new Worker(name, member.get("done").getAsDouble(),
-                        member.has("afk") && member.get("afk").getAsBoolean()));
-            }
+            Map<String, Long> counts = new HashMap<>();
             if (member.has("counts") && member.get("counts").isJsonObject()) {
                 for (Map.Entry<String, JsonElement> count : member.getAsJsonObject("counts").entrySet()) {
+                    counts.put(count.getKey(), count.getValue().getAsLong());
                     totals.merge(count.getKey(), count.getValue().getAsLong(), Long::sum);
                 }
             }
+            if (!member.has("active") || member.get("active").getAsBoolean()) {
+                found.add(new Worker(name, member.get("done").getAsDouble(),
+                        member.has("afk") && member.get("afk").getAsBoolean(), counts));
+            }
         }
         workers = found;
+        GuildWorkHud.onWorkers(found);
         GuildQuestScanner.onGuildTotals(totals);
     }
 
@@ -228,6 +237,7 @@ final class GuildShare {
         long now = System.currentTimeMillis();
         long offset = json.has("now") ? now - json.get("now").getAsLong() : 0L;
         long updated = json.get("updated").getAsLong();
+        long scannedAtLocal = updated + offset;
         long refreshAt = json.get("refreshAt").getAsLong();
         long refreshAtLocal = refreshAt > 0L ? refreshAt + offset : 0L;
         JsonArray quests = json.getAsJsonArray("quests");
@@ -239,10 +249,10 @@ final class GuildShare {
                 entries.add(new String[]{quest.get("name").getAsString(), quest.get("left").getAsString(),
                         quest.get("right").getAsString()});
             }
-            GuildQuestScanner.applyShared(entries, refreshAtLocal);
+            GuildQuestScanner.applyShared(entries, refreshAtLocal, scannedAtLocal);
         }
         boolean stale = quests == null || quests.isEmpty() || now >= refreshAtLocal + STALE_GRACE_MS
-                || now - (updated + offset) > MAX_AGE_MS;
+                || now - scannedAtLocal > MAX_AGE_MS;
         if (!stale) {
             staleSinceMs = 0L;
             pollAgain(now, refreshAtLocal);
@@ -251,14 +261,19 @@ final class GuildShare {
         if (staleSinceMs == 0L) {
             staleSinceMs = now;
         }
+        boolean announced = GuildQuestScanner.newQuestsAnnounced();
+        if (announced) {
+            nextPollMs = Math.min(nextPollMs, now + 5_000L);
+        }
         // only an AFK player scans, so nobody active gets the /gq menu popping up
-        if (!PlayerStats.isAfk() || claiming || GuildQuestScanner.isScanning() || McCompat.screen(client) != null) {
+        if ((!PlayerStats.isAfk() && !announced) || claiming || GuildQuestScanner.isScanning() || McCompat.screen(client) != null) {
             return;
         }
         claiming = true;
         post("/gq/claim", body(client, guild), claim -> {
             claiming = false;
-            if (claim != null && claim.has("ok") && claim.get("ok").getAsBoolean() && PlayerStats.isAfk()) {
+            if (claim != null && claim.has("ok") && claim.get("ok").getAsBoolean()
+                    && (PlayerStats.isAfk() || GuildQuestScanner.newQuestsAnnounced())) {
                 GuildQuestScanner.triggerManual(client);
             }
         });

@@ -21,8 +21,7 @@
     ]
   },
   "mixins": [
-    "bazzar.mixins.json",
-    "bazzar-extra.mixins.json"
+    "bazzar.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=${loader_version}",

@@ -9,7 +9,8 @@
     "GuiScoreboardMixin",
     "GuiTitleMixin",
     "FrameLimitTrackerMixin",
-    "ClientLevelBlockMixin"
+    "ClientLevelBlockMixin",
+    "FontAnimatedPrefixMixin"
   ],
   "injectors": {
     "defaultRequire": 1

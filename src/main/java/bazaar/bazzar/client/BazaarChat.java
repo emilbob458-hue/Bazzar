@@ -21,8 +21,9 @@ final class BazaarChat {
     private static MutableComponent animated(String text) {
         MutableComponent out = Component.empty();
         for (int i = 0; i < text.length(); i++) {
+            int rgb = PrefixPalette.animate(i);
             out.append(Component.literal(String.valueOf(text.charAt(i)))
-                    .withStyle(style -> style.withColor(TextColor.fromRgb(PrefixPalette.SENTINEL)).withBold(true)));
+                    .withStyle(style -> style.withColor(TextColor.fromRgb(rgb)).withBold(true).withFont(PrefixPalette.FONT)));
         }
         return out;
     }

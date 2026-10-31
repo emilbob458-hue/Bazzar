@@ -41,10 +41,15 @@ final class GuildQuestScanner {
     private static final long SHARE_WAIT_MS = 90_000L;
     // a refresh time this far from the old one is a new set of quests, not the same one counted down
     private static final long NEW_CYCLE_MS = 120_000L;
+    private static final long ANNOUNCED_SHARE_WAIT_MS = 20_000L;
+    private static final long ANNOUNCED_WINDOW_MS = 120_000L;
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("progress\\s*:\\s*([^\\s]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern DURATION_PATTERN = Pattern.compile("(\\d+)\\s*([hms])", Pattern.CASE_INSENSITIVE);
     private static final List<QuestEntry> lastEntries = new ArrayList<>();
     private static long questsRefreshAtMs = 0L;
+    private static int questCycle = 0;
+    private static long announcedAtMs = 0L;
+    private static long scannedAtMs = Long.MAX_VALUE;
     private static final java.util.Set<String> completedNames = new java.util.HashSet<>();
     private static final QuestLiveTracker LIVE = new QuestLiveTracker();
 
@@ -100,8 +105,9 @@ final class GuildQuestScanner {
         if (dueSinceMs == 0L) {
             dueSinceMs = now;
         }
+        long shareWait = newQuestsAnnounced() ? ANNOUNCED_SHARE_WAIT_MS : SHARE_WAIT_MS;
         // with a guild set, an AFK member scans for everyone; scan here once their copy clearly isn't coming
-        if (GuildShare.isActive() && !GuildShare.fallbackDue() && now - dueSinceMs < SHARE_WAIT_MS) {
+        if (GuildShare.isActive() && !GuildShare.fallbackDue() && now - dueSinceMs < shareWait) {
             return;
         }
         long retryGap = blindScans >= MAX_QUICK_RETRIES ? AUTO_RETRY_MS : REFRESH_RETRY_MS;
@@ -259,6 +265,10 @@ final class GuildQuestScanner {
             return;
         }
         String text = SbText.stripFormattingCodes(line);
+        if (text.toLowerCase(Locale.ROOT).contains("new guild quests have become available")) {
+            onNewQuestsAnnounced(System.currentTimeMillis());
+            return;
+        }
         int idx = text.toLowerCase(Locale.ROOT).indexOf("guild quest complete:");
         if (idx < 0) {
             return;
@@ -281,8 +291,30 @@ final class GuildQuestScanner {
         return state != State.IDLE;
     }
 
+    private static void onNewQuestsAnnounced(long now) {
+        announcedAtMs = now;
+        if (questsRefreshAtMs <= 0L || questsRefreshAtMs > now) {
+            questsRefreshAtMs = now;
+        }
+        lastAutoTriggerMs = 0L;
+        blindScans = 0;
+    }
+
+    static long newQuestsAnnouncedAtMs() {
+        return announcedAtMs;
+    }
+
+    static boolean newQuestsAnnounced() {
+        return announcedAtMs > 0L && getSecondsUntilQuestRefresh() == 0
+                && System.currentTimeMillis() - announcedAtMs < ANNOUNCED_WINDOW_MS;
+    }
+
     // quests shared by a guild member's scan; quests that finished since then stay done
     static void applyShared(List<String[]> quests, long refreshAtMs) {
+        applyShared(quests, refreshAtMs, Long.MAX_VALUE);
+    }
+
+    static void applyShared(List<String[]> quests, long refreshAtMs, long scannedAtLocalMs) {
         // the cycle is settled first, so a new one has already dropped the old "complete" names
         if (refreshAtMs > 0L) {
             setRefreshAt(refreshAtMs);
@@ -293,7 +325,9 @@ final class GuildQuestScanner {
             boolean done = completedNames.contains(normalize(quest[0]));
             lastEntries.add(new QuestEntry(quest[0], done ? quest[2] : quest[1], quest[2], done));
         }
+        scannedAtMs = scannedAtLocalMs;
         restartLive();
+        scannedAtMs = Long.MAX_VALUE;
     }
 
     static List<QuestEntry> getOpenEntries() {
@@ -337,12 +371,11 @@ final class GuildQuestScanner {
     }
 
     static void onGuildTotals(Map<String, Long> totals) {
-        LIVE.onPooled(totals);
+        LIVE.onPooled(totals, System.currentTimeMillis());
     }
 
-    // when the current quests run out; also tells the guild HUD that a new set of quests started
-    static long questsRefreshAtMs() {
-        return questsRefreshAtMs;
+    static int questCycle() {
+        return questCycle;
     }
 
     static int getSecondsUntilQuestRefresh() {
@@ -434,6 +467,7 @@ final class GuildQuestScanner {
         if (Math.abs(refreshAtMs - questsRefreshAtMs) > NEW_CYCLE_MS) {
             completedNames.clear();
             LIVE.newCycle();
+            questCycle++;
         }
         questsRefreshAtMs = refreshAtMs;
     }
@@ -552,7 +586,7 @@ final class GuildQuestScanner {
         for (QuestEntry entry : lastEntries) {
             quests.add(new String[]{entry.name, entry.leftValue, entry.rightValue});
         }
-        LIVE.onScan(quests);
+        LIVE.onScan(quests, scannedAtMs);
     }
 
     // ---- live progress between scans ----

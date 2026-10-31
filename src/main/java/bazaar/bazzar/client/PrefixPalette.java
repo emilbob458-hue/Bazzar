@@ -1,7 +1,10 @@
 package bazaar.bazzar.client;
 
+import net.minecraft.network.chat.FontDescription;
+import net.minecraft.resources.Identifier;
+
 public final class PrefixPalette {
-    public static final int SENTINEL = 0xFFD54B;
+    public static final FontDescription FONT = new FontDescription.Resource(Identifier.fromNamespaceAndPath("bazzar", "prefix"));
     private static final int GOLD = 0xFFD54A;
     private static final int ORANGE = 0xFF7A3D;
     private static final long PERIOD_MS = 2600L;

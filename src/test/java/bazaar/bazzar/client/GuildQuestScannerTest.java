@@ -73,6 +73,30 @@ class GuildQuestScannerTest {
     }
 
     @Test
+    void theNewQuestsChatLineMakesTheRefreshDueRightAway() {
+        share(System.currentTimeMillis() + 40_000L, "Kill 1,000 Bats");
+        assertTrue(GuildQuestScanner.getSecondsUntilQuestRefresh() > 0);
+        GuildQuestScanner.onChatLine("GUILDS • New guild quests have become available!");
+        assertEquals(0, GuildQuestScanner.getSecondsUntilQuestRefresh());
+        assertTrue(GuildQuestScanner.newQuestsAnnounced());
+
+        share(System.currentTimeMillis() + HOUR_MS, "Kill 500 Zombies");
+        assertFalse(GuildQuestScanner.newQuestsAnnounced());
+    }
+
+    @Test
+    void reReadingTheSameTimerKeepsTheSameCycle() {
+        long refreshAt = System.currentTimeMillis() + 3 * HOUR_MS;
+        share(refreshAt, "Kill 1,000 Bats");
+        int cycle = GuildQuestScanner.questCycle();
+        share(refreshAt - 45_000L, "Kill 1,000 Bats");
+        share(refreshAt + 20_000L, "Kill 1,000 Bats");
+        assertEquals(cycle, GuildQuestScanner.questCycle());
+        share(refreshAt + 2 * HOUR_MS, "Kill 1,000 Bats");
+        assertEquals(cycle + 1, GuildQuestScanner.questCycle());
+    }
+
+    @Test
     void countsDownToTheRefreshItWasGiven() {
         share(System.currentTimeMillis() + 90_000L, "Kill 1,000 Bats");
         int seconds = GuildQuestScanner.getSecondsUntilQuestRefresh();

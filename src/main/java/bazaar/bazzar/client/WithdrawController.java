@@ -284,6 +284,7 @@ final class WithdrawController {
             return;
         }
         button.onPress(new KeyEvent(GLFW.GLFW_KEY_ENTER, 0, 0));
+        client.player.closeContainer();
         state = State.IDLE;
         McCompat.chat(client.player, BazaarChat.prefix().append(Component.literal("Withdrew "
                 + (amount == null ? "all " : amount + " ") + targetName + ".").withStyle(ChatFormatting.AQUA)));

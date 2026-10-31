@@ -257,6 +257,11 @@ final class BazzarConfig {
         while (loaded.chatTriggerSelfOnly.size() < 8) {
             loaded.chatTriggerSelfOnly.add(false);
         }
+        if (!root.has("guildSharingDefaulted")) {
+            loaded.guildShareOff = false;
+            loaded.guildWorkHudVisible = true;
+            loaded.guildSharingDefaulted = true;
+        }
         if (!root.has("defaultTriggerAdded")) {
             addDefaultTrigger(loaded);
         }
@@ -402,7 +407,8 @@ final class BazzarConfig {
         int cbHudY = 100;
         String guildName = "";
         boolean guildShareOff = false;
-        boolean guildWorkHudVisible = false;
+        boolean guildWorkHudVisible = true;
+        boolean guildSharingDefaulted = true;
         int guildWorkHudX = 6;
         int guildWorkHudY = 140;
         float guildWorkHudScale = 1.0f;

@@ -73,6 +73,17 @@ final class PayoutQueue {
         if (received <= minimum(kind)) {
             return;
         }
+        if (TradeTracker.recentlyTraded(sender)) {
+            String unit = "gem".equals(kind) ? (received == 1.0d ? " gem" : " gems")
+                    : "shard".equals(kind) ? (received == 1.0d ? " shard" : " shards") : " cobble";
+            message(client, prefix()
+                    .append(Component.literal("Received ").withStyle(ChatFormatting.GRAY))
+                    .append(Component.literal(SbText.formatCompact(received) + unit).withStyle(ChatFormatting.WHITE))
+                    .append(Component.literal(" from ").withStyle(ChatFormatting.GRAY))
+                    .append(Component.literal(sender).withStyle(ChatFormatting.AQUA))
+                    .append(Component.literal(", not paying since you just traded them.").withStyle(ChatFormatting.YELLOW)));
+            return;
+        }
         String currency = currencyOf(kind);
         if (CelestialMarket.mayPayForBoost(sender, currency, received)) {
             // they may be paying for a Celestial Boost, which is not something to pay them back for

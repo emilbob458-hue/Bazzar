@@ -47,7 +47,7 @@ final class PublicPresets {
             "shardPayoutEnabled", "shardPayoutPrice", "gemPayoutEnabled",
             "celestialBoosterReadyAt",
             "shardPayoutMin", "gemPayoutMin", "cobblePayoutMin",
-            "guildName", "guildShareOff", "lastAnnouncementId", "cbWarningAccepted", "cbWarningHidden",
+            "guildName", "guildShareOff", "guildSharingDefaulted", "lastAnnouncementId", "cbWarningAccepted", "cbWarningHidden",
             "cbSellEnabled", "cbPrices", "cbPoolEnabled", "cbQuickCurrency", "cbHudVisible", "cbHudX", "cbHudY",
             "shardPrice", "gemPrice", "currentMulti",
             "autoDumpEnabled", "autoDumpPvPage", "defaultTriggerAdded",

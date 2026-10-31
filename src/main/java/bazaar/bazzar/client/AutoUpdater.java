@@ -198,8 +198,13 @@ final class AutoUpdater {
 
     private static void remind(String latest) {
         String current = currentVersionText();
+        boolean disabled = Files.exists(DISABLED);
+        if (disabled && forced) {
+            post(requiredWarning(latest), ChatFormatting.RED);
+            return;
+        }
         String how;
-        if (Files.exists(DISABLED)) {
+        if (disabled) {
             how = "Use /bazzarupdate on to update.";
         } else if (Files.isRegularFile(PENDING_JAR)) {
             how = "Restart Minecraft to update.";
@@ -207,6 +212,12 @@ final class AutoUpdater {
             how = "Use /bazzarupdate to download it.";
         }
         post("You are on Bazzar " + current + ", " + latest + " is out. " + how, ChatFormatting.YELLOW);
+    }
+
+    private static String requiredWarning(String latest) {
+        return "Bazzar " + latest + " is a required update and you are on " + currentVersionText()
+                + ". Parts of the mod may stop working until you update. Auto update is OFF, so nothing will be"
+                + " installed. Use /bazzarupdate on to update.";
     }
 
     private static void markOutdated(String latest, boolean announced) {
@@ -222,7 +233,7 @@ final class AutoUpdater {
                 .append(Component.literal(currentVersionText()).withStyle(ChatFormatting.AQUA)));
         if (Files.exists(DISABLED)) {
             context.getSource().sendFeedback(prefix()
-                    .append(Component.literal("Auto update is OFF. Checking anyway... (/bazzarupdate on to enable)").withStyle(ChatFormatting.GRAY)));
+                    .append(Component.literal("Auto update is OFF. Checking without downloading... (/bazzarupdate on to enable)").withStyle(ChatFormatting.GRAY)));
         } else {
             context.getSource().sendFeedback(prefix()
                     .append(Component.literal("Checking for updates...").withStyle(ChatFormatting.GRAY)));
@@ -243,6 +254,7 @@ final class AutoUpdater {
                 Files.writeString(DISABLED, "");
                 Files.deleteIfExists(PENDING_JAR);
                 Files.deleteIfExists(PENDING_VERSION);
+                forceCloseAtMs = 0L;
             }
         } catch (IOException e) {
             context.getSource().sendFeedback(prefix()
@@ -339,6 +351,16 @@ final class AutoUpdater {
         }
         String expectedHash = digest.substring("sha256:".length()).toLowerCase(Locale.ROOT);
 
+        if (Files.exists(DISABLED)) {
+            if (manual) {
+                post(forced ? requiredWarning(latest.getFriendlyString())
+                                : "Bazzar " + latest.getFriendlyString() + " is out. Auto update is OFF, use /bazzarupdate on to update.",
+                        forced ? ChatFormatting.RED : ChatFormatting.YELLOW);
+            }
+            markOutdated(latest.getFriendlyString(), manual);
+            return;
+        }
+
         if (Files.isRegularFile(PENDING_JAR) && expectedHash.equals(sha256(PENDING_JAR))) {
             if (manual) {
                 post("Bazzar " + latest.getFriendlyString() + " is downloaded. Restart Minecraft to finish updating.", ChatFormatting.AQUA);
@@ -347,10 +369,6 @@ final class AutoUpdater {
             if (forced) {
                 scheduleForceClose(latest.getFriendlyString());
             }
-            return;
-        }
-        if (!manual && !forced && Files.exists(DISABLED)) {
-            markOutdated(latest.getFriendlyString(), false);
             return;
         }
 
@@ -429,7 +447,7 @@ final class AutoUpdater {
 
     // the jar can only be swapped while Minecraft shuts down, so close it after a warning
     private static void scheduleForceClose(String latest) {
-        if (forceCloseAtMs > 0L) {
+        if (forceCloseAtMs > 0L || Files.exists(DISABLED)) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -496,7 +514,7 @@ final class AutoUpdater {
             if (!Files.isRegularFile(PENDING_JAR) || !Files.isRegularFile(PENDING_VERSION)) {
                 return;
             }
-            if (Files.exists(DISABLED) && !forced) {
+            if (Files.exists(DISABLED)) {
                 UpdateApplier.write(LOG, "skipped, auto update is off");
                 return;
             }

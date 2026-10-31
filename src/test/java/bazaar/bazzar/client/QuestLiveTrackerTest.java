@@ -614,8 +614,8 @@ class QuestLiveTrackerTest {
         quests.add(new String[]{"Farm 5,000 Wheat", "1,000", "5,000"});
         tracker.onScan(quests);
         other.onScan(quests);
-        tracker.onPooled(java.util.Map.of());
-        other.onPooled(java.util.Map.of());
+        tracker.onPooled(java.util.Map.of(), now);
+        other.onPooled(java.util.Map.of(), now);
 
         for (int i = 0; i < 300; i++) {
             tracker.onCounted(QuestLiveTracker.Kind.FARM, 1L, List.of("Wheat Crops"), now);
@@ -627,8 +627,8 @@ class QuestLiveTrackerTest {
         }
         java.util.Map<String, Long> totals = new java.util.HashMap<>(tracker.myCounts());
         other.myCounts().forEach((quest, count) -> totals.merge(quest, count, Long::sum));
-        tracker.onPooled(totals);
-        other.onPooled(totals);
+        tracker.onPooled(totals, now);
+        other.onPooled(totals, now);
 
         assertEquals(1_500d, tracker.live("Farm 5,000 Wheat"));
         assertEquals(1_500d, other.live("Farm 5,000 Wheat"));
@@ -637,14 +637,49 @@ class QuestLiveTrackerTest {
 
     @Test
     void guildCountsBeforeTheScanAreNotCountedTwice() {
-        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 800L));
+        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 800L), now);
         scan("Farm 5,000 Wheat", "1,800", "5,000");
-        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 900L));
+        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 900L), now);
         assertEquals(1_900d, tracker.live("Farm 5,000 Wheat"));
 
         tracker.newCycle();
         scan("Farm 5,000 Wheat", "0", "5,000");
-        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 900L));
+        tracker.onPooled(java.util.Map.of("farm5000wheat:5000", 900L), now);
         assertEquals(0d, tracker.live("Farm 5,000 Wheat"));
+    }
+
+    @Test
+    void paintFarmBlocksNamedDifferentlyStillCountAtTheBps() {
+        scan("Farm 3,000 Red Paint", "176", "3,000");
+        long end = now + 10_000L;
+        long nextBar = now;
+        while (now < end) {
+            if (now >= nextBar) {
+                tracker.onActionBar("+3,188 Red Paint (556.67T)  +1.61M XP  20 BPS", now);
+                nextBar = now + 1_000L;
+            }
+            tracker.onCounted(QuestLiveTracker.Kind.FARM, 1L, List.of("Red Glazed Terracotta"), now);
+            tracker.tick(now);
+            now += TICK_MS;
+        }
+        double live = tracker.live("Farm 3,000 Red Paint");
+        assertTrue(live >= 176 + 190 && live <= 176 + 201, "live was " + live);
+    }
+
+    @Test
+    void aSharedScanLinesUpWithTheGuildCountsFromWhenItWasRead() {
+        tracker.onPooled(java.util.Map.of("kill1000evokers:1000", 100L), now);
+        long scannedAt = now;
+        for (int i = 0; i < 24; i++) {
+            now += 5_000L;
+            tracker.onPooled(java.util.Map.of("kill1000evokers:1000", 100L + (i + 1) * 10L), now);
+        }
+        List<String[]> quests = new ArrayList<>();
+        quests.add(new String[]{"Kill 1,000 Evokers", "400", "1,000"});
+        tracker.onScan(quests, scannedAt);
+        assertEquals(640d, tracker.live("Kill 1,000 Evokers"));
+        now += 5_000L;
+        tracker.onPooled(java.util.Map.of("kill1000evokers:1000", 350L), now);
+        assertEquals(650d, tracker.live("Kill 1,000 Evokers"));
     }
 }

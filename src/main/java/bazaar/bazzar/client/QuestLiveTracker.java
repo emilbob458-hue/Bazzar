@@ -25,6 +25,8 @@ final class QuestLiveTracker {
     // fishing is slow next to farming: two catches this far apart still measure as a rate, and a
     // quest stays live this long after the last one so the ETA doesn't blink out between bites
     static final long CATCH_WINDOW_MS = 30_000L;
+    static final long POOLED_STEP_MS = 30_000L;
+    static final long POOLED_KEEP_MS = 70L * 60_000L;
 
     private static final Pattern QUEST_PATTERN = Pattern.compile(
             "^(kill|slay|farm|harvest|break|mine|catch|fish|reel)\\s+(?:[0-9][0-9.,]*\\s*[kmb]?\\s+)?(.+)$");
@@ -73,17 +75,25 @@ final class QuestLiveTracker {
     private final Map<Kind, String> lastName = new HashMap<>();
     private final Map<Kind, Long> lastNameMs = new HashMap<>();
     private final Map<Kind, Long> lastSureMs = new HashMap<>();
+    private final java.util.Set<Kind> guessed = java.util.EnumSet.noneOf(Kind.class);
+    private final java.util.ArrayDeque<PooledAt> pooledHistory = new java.util.ArrayDeque<>();
     private String lastCatchLine = "";
     private long lastStepMs = 0L;
     private double contributed = 0d;
     private long catchWindowMs = 0L;
     private double catchWindowGained = 0d;
     private final Map<String, Double> mine = new HashMap<>();
-    private Map<String, Long> pooled = Map.of();
-    private boolean pooledSeen = false;
+    private record PooledAt(long atMs, Map<String, Long> totals) {
+    }
 
     // a fresh /gq read or guild share is the truth again, so live counting starts over from it
     void onScan(List<String[]> scanned) {
+        onScan(scanned, Long.MAX_VALUE);
+    }
+
+    void onScan(List<String[]> scanned, long scannedAtMs) {
+        Map<String, Long> atScan = pooledAt(scannedAtMs);
+        Map<String, Long> latest = pooledHistory.isEmpty() ? Map.of() : pooledHistory.peekLast().totals();
         quests.clear();
         for (String[] quest : scanned) {
             Kind kind = kind(quest[0]);
@@ -93,8 +103,12 @@ final class QuestLiveTracker {
                 continue;
             }
             String poolKey = questKey(quest[0]) + ":" + (long) required;
-            double baseline = pooledSeen ? pooled.getOrDefault(poolKey, 0L) : -1d;
-            quests.put(questKey(quest[0]), new Quest(kind, target(quest[0]), base, required, poolKey, baseline));
+            double baseline = atScan == null ? -1d : atScan.getOrDefault(poolKey, 0L);
+            Quest tracked = new Quest(kind, target(quest[0]), base, required, poolKey, baseline);
+            if (baseline >= 0d) {
+                tracked.shared = Math.min(required - base, Math.max(0d, latest.getOrDefault(poolKey, 0L) - baseline));
+            }
+            quests.put(questKey(quest[0]), tracked);
         }
     }
 
@@ -182,11 +196,17 @@ final class QuestLiveTracker {
     void onSure(Kind kind, List<String> names, long now) {
         String matched = firstMatch(kind, names);
         if (matched == null) {
-            if (hasName(names)) {
+            if (kind == Kind.FARM) {
+                lastSureMs.remove(kind);
+                if (!guessed.contains(kind)) {
+                    lastName.remove(kind);
+                }
+            } else if (hasName(names)) {
                 lastName.remove(kind);
             }
             return;
         }
+        guessed.remove(kind);
         lastSureMs.put(kind, now);
         lastName.put(kind, matched);
         lastNameMs.put(kind, now);
@@ -215,6 +235,7 @@ final class QuestLiveTracker {
         }
         lastName.put(kind, name);
         lastNameMs.put(kind, now);
+        guessed.add(kind);
     }
 
     // a kill or break the mod saw itself; only counted while the action bar shows no rate
@@ -292,9 +313,19 @@ final class QuestLiveTracker {
         return counts;
     }
 
-    void onPooled(Map<String, Long> totals) {
-        pooled = Map.copyOf(totals);
-        pooledSeen = true;
+    void onPooled(Map<String, Long> totals, long now) {
+        Map<String, Long> pooled = Map.copyOf(totals);
+        if (pooledHistory.size() > 1) {
+            java.util.Iterator<PooledAt> newestFirst = pooledHistory.descendingIterator();
+            long newestMs = newestFirst.next().atMs();
+            if (newestMs - newestFirst.next().atMs() < POOLED_STEP_MS) {
+                pooledHistory.pollLast();
+            }
+        }
+        pooledHistory.addLast(new PooledAt(now, pooled));
+        while (pooledHistory.size() > 2 && now - pooledHistory.peekFirst().atMs() > POOLED_KEEP_MS) {
+            pooledHistory.pollFirst();
+        }
         for (Quest quest : quests.values()) {
             double total = pooled.getOrDefault(quest.poolKey, 0L);
             if (quest.baseline < 0d) {
@@ -306,8 +337,16 @@ final class QuestLiveTracker {
 
     void newCycle() {
         mine.clear();
-        pooled = Map.of();
-        pooledSeen = false;
+    }
+
+    private Map<String, Long> pooledAt(long atMs) {
+        PooledAt best = null;
+        for (PooledAt snapshot : pooledHistory) {
+            if (best == null || snapshot.atMs() <= atMs) {
+                best = snapshot;
+            }
+        }
+        return best == null ? null : best.totals();
     }
 
     // everything this player has put into the guild quests since the last call, for the "who's working" HUD.
