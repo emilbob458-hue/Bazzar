@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "bazaar.bazzar.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "FontAnimatedPrefixMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

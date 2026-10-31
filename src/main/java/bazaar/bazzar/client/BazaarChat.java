@@ -14,8 +14,17 @@ final class BazaarChat {
     }
 
     static MutableComponent prefix() {
-        return gradient("Bazaar", true)
+        return animated("Bazaar")
                 .append(Component.literal(" » ").withStyle(ChatFormatting.DARK_GRAY));
+    }
+
+    private static MutableComponent animated(String text) {
+        MutableComponent out = Component.empty();
+        for (int i = 0; i < text.length(); i++) {
+            out.append(Component.literal(String.valueOf(text.charAt(i)))
+                    .withStyle(style -> style.withColor(TextColor.fromRgb(PrefixPalette.SENTINEL)).withBold(true)));
+        }
+        return out;
     }
 
     static MutableComponent gradient(String text, boolean bold) {

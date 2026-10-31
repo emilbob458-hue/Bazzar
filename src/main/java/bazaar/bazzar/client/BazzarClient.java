@@ -68,6 +68,7 @@ public class BazzarClient implements ClientModInitializer {
         CelestialMarket.registerCommands();
         GuildShare.registerCommands();
         Announcements.registerCommands();
+        WithdrawController.registerCommands();
         KeyMapping scanKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.bazzar.scan",
                 GLFW.GLFW_KEY_B,
@@ -195,6 +196,7 @@ public class BazzarClient implements ClientModInitializer {
             ShardPayController.triggerAuto(client);
             AutoPunchController.triggerAuto(client);
             AltCommandController.tick(client);
+            WithdrawController.tick(client);
             SessionProfitHud.tick(client);
             PlaytimeRewardsController.tick(client);
             CelestialBoosterReminder.tick(client);
