@@ -7,12 +7,18 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.tree.CommandNode;
 import com.mojang.brigadier.tree.LiteralCommandNode;
+import com.mojang.serialization.JsonOps;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.client.multiplayer.ClientSuggestionProvider;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
@@ -39,7 +45,7 @@ final class FishWarps {
         KNOWN.put("pilchard", "Pilchard");
         KNOWN.put("mackerel", "Mackerel");
         KNOWN.put("seabass", "Sea Bass");
-        KNOWN.put("bluefin", "Bluefin");
+        KNOWN.put("bluefintuna", "Bluefin Tuna");
         KNOWN.put("koi", "Koi");
         KNOWN.put("redseabream", "Red Sea Bream");
         KNOWN.put("unagieel", "Unagi Eel");
@@ -53,6 +59,8 @@ final class FishWarps {
         KNOWN.put("rivercatfish", "River Catfish");
         KNOWN.put("tigerfish", "Tigerfish");
     }
+
+    private static final Map<String, String> RENAMED = Map.of("bluefin", "bluefintuna");
 
     private static final int SCAN_SETTLE_TICKS = 6;
     private static final int SCAN_OPEN_TIMEOUT_TICKS = 100;
@@ -76,6 +84,13 @@ final class FishWarps {
     private static boolean scanPendingOpen = false;
     private static String scanFingerprint = "";
     private static final Map<String, String[]> scanned = new LinkedHashMap<>();
+    private static final Map<String, ItemStack> iconCache = new LinkedHashMap<>();
+    private static final int ID_RETRY_TICKS = 600;
+    private static final int ID_MAX_TRIES = 3;
+    private static ClientPacketListener idConnection = null;
+    private static int idTries = 0;
+    private static int idTicks = 0;
+    private static boolean idsReceived = false;
 
     private FishWarps() {
     }
@@ -175,7 +190,7 @@ final class FishWarps {
             }
             String key = spotKey(display, treeSpots);
             if (!key.isEmpty() && !scanned.containsKey(key)) {
-                scanned.put(key, new String[]{key, display, itemId});
+                scanned.put(key, new String[]{key, display, itemId, iconJson(client, stack)});
             }
         }
     }
@@ -262,8 +277,9 @@ final class FishWarps {
             return entries;
         }
         for (String line : saved) {
-            String[] parts = line == null ? new String[0] : line.split("\\|", -1);
-            if (parts.length == 3 && !parts[0].isEmpty()) {
+            String[] parts = line == null ? new String[0] : line.split("\\|", 4);
+            if (parts.length >= 3 && !parts[0].isEmpty()) {
+                parts[0] = RENAMED.getOrDefault(parts[0], parts[0]);
                 entries.add(parts);
             }
         }
@@ -284,6 +300,12 @@ final class FishWarps {
         if (entry == null) {
             return null;
         }
+        if (entry.length > 3 && !entry[3].isEmpty()) {
+            ItemStack full = iconFromJson(entry[3]);
+            if (full != null) {
+                return full;
+            }
+        }
         Identifier id = Identifier.tryParse(entry[2]);
         if (id == null) {
             return null;
@@ -294,6 +316,42 @@ final class FishWarps {
         }
         Item item = ref.get().value();
         return item == Items.AIR ? null : new ItemStack(item);
+    }
+
+    private static String iconJson(Minecraft client, ItemStack stack) {
+        if (client.level == null) {
+            return "";
+        }
+        try {
+            return ItemStack.CODEC
+                    .encodeStart(client.level.registryAccess().createSerializationContext(JsonOps.INSTANCE), stack.copyWithCount(1))
+                    .result().map(JsonElement::toString).orElse("");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static ItemStack iconFromJson(String json) {
+        ItemStack cached = iconCache.get(json);
+        if (cached != null) {
+            return cached.copy();
+        }
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null) {
+            return null;
+        }
+        try {
+            ItemStack stack = ItemStack.CODEC
+                    .parse(client.level.registryAccess().createSerializationContext(JsonOps.INSTANCE), JsonParser.parseString(json))
+                    .result().orElse(null);
+            if (stack == null || stack.isEmpty()) {
+                return null;
+            }
+            iconCache.put(json, stack);
+            return stack.copy();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     // every fishing spot to show, the known ones first and anything the server added after them
@@ -312,23 +370,147 @@ final class FishWarps {
                 spots.add(name);
             }
         }
+        for (String id : serverIds()) {
+            String name = normalize(id);
+            if (!name.isEmpty() && !spots.contains(name) && matchingSpot(name, spots) == null) {
+                spots.add(name);
+            }
+        }
         return spots.size() > MAX_SPOTS ? spots.subList(0, MAX_SPOTS) : spots;
     }
 
-    static String displayName(String spot) {
-        String[] entry = scanEntry(spot);
-        if (entry != null && !entry[1].isEmpty()) {
-            return entry[1];
+    private static String matchingSpot(String id, List<String> spots) {
+        String best = null;
+        for (String spot : spots) {
+            if (spot.equals(id)) {
+                return spot;
+            }
+            String name = normalize(displayName(spot));
+            if ((spot.contains(id) || name.contains(id)) && (best == null || spot.length() < best.length())) {
+                best = spot;
+            }
         }
+        return best;
+    }
+
+    private static String serverId(String spot) {
+        String best = null;
+        String name = normalize(displayName(spot));
+        for (String id : serverIds()) {
+            String key = normalize(id);
+            if (key.isEmpty()) {
+                continue;
+            }
+            if (key.equals(spot)) {
+                return id;
+            }
+            if ((spot.contains(key) || name.contains(key)) && (best == null || key.length() > normalize(best).length())) {
+                best = id;
+            }
+        }
+        return best;
+    }
+
+    private static List<String> serverIds() {
+        List<String> ids = BazzarConfig.load().fishWarpIds;
+        return ids == null ? List.of() : ids;
+    }
+
+    private static String commandArg(String spot) {
+        String id = serverId(spot);
+        if (id != null) {
+            return id;
+        }
+        String name = displayName(spot).trim().toLowerCase(Locale.ROOT);
+        int space = name.indexOf(' ');
+        return space > 0 ? name.substring(0, space) : name;
+    }
+
+    static String displayName(String spot) {
         String known = KNOWN.get(spot);
         if (known != null) {
             return known;
+        }
+        String[] entry = scanEntry(spot);
+        if (entry != null && !entry[1].isEmpty()) {
+            return entry[1];
         }
         return spot.isEmpty() ? spot : Character.toUpperCase(spot.charAt(0)) + spot.substring(1);
     }
 
     static String warpCommand(String spot) {
-        return COMMAND + " " + spot;
+        return COMMAND + " " + commandArg(spot);
+    }
+
+    static String upgradeCommand(String command) {
+        if (command == null || !command.startsWith(COMMAND + " ")) {
+            return command;
+        }
+        String arg = normalize(command.substring(COMMAND.length() + 1));
+        if (arg.isEmpty()) {
+            return command;
+        }
+        arg = RENAMED.getOrDefault(arg, arg);
+        List<String> spots = spots();
+        if (spots.contains(arg)) {
+            return warpCommand(arg);
+        }
+        for (String spot : spots) {
+            if (normalize(commandArg(spot)).equals(arg)) {
+                return warpCommand(spot);
+            }
+        }
+        String spot = matchingSpot(arg, spots);
+        return warpCommand(spot == null ? arg : spot);
+    }
+
+    private static void tickServerIds(Minecraft client) {
+        ClientPacketListener connection = client.player.connection;
+        if (connection != idConnection) {
+            idConnection = connection;
+            idTries = 0;
+            idTicks = 0;
+            idsReceived = false;
+        }
+        if (idsReceived || idTries >= ID_MAX_TRIES || McCompat.screen(client) != null) {
+            return;
+        }
+        if (idTries > 0 && ++idTicks < ID_RETRY_TICKS) {
+            return;
+        }
+        try {
+            CommandDispatcher<ClientSuggestionProvider> dispatcher = connection.getCommands();
+            if (dispatcher == null || dispatcher.getRoot().getChild(COMMAND) == null) {
+                return;
+            }
+            idTries++;
+            idTicks = 0;
+            String input = COMMAND + " ";
+            dispatcher.getCompletionSuggestions(dispatcher.parse(input, connection.getSuggestionsProvider()), input.length())
+                    .thenAccept(suggestions -> {
+                        List<String> ids = new ArrayList<>();
+                        for (Suggestion suggestion : suggestions.getList()) {
+                            String id = suggestion.getText().trim();
+                            if (!id.isEmpty() && !id.contains(" ") && !ids.contains(id)) {
+                                ids.add(id);
+                            }
+                        }
+                        client.execute(() -> saveServerIds(ids));
+                    });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void saveServerIds(List<String> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        idsReceived = true;
+        BazzarConfig.State state = BazzarConfig.load();
+        if (!ids.equals(state.fishWarpIds)) {
+            state.fishWarpIds = ids;
+            BazzarConfig.save(state);
+        }
     }
 
     static void tick(Minecraft client) {
@@ -336,6 +518,7 @@ final class FishWarps {
             return;
         }
         tickScan(client);
+        tickServerIds(client);
         if (++tickCounter % CHECK_INTERVAL_TICKS != 0) {
             return;
         }

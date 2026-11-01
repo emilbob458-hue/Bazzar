@@ -62,6 +62,11 @@ final class CelestialPanel {
     View view = View.MARKET;
     private final Font font = Minecraft.getInstance().font;
     private final EditBox[] priceBoxes = new EditBox[CelestialMarket.CURRENCIES.length];
+    private EditBox buyerNameBox;
+    private EditBox buyerPriceBox;
+    private boolean buyerMode;
+    private int buyerCurrency;
+    private int buyerScroll;
     private int cx;
     private int cy;
     private int w;
@@ -97,6 +102,19 @@ final class CelestialPanel {
             priceBoxes[i] = box;
             addWidget.accept(box);
         }
+        buyerNameBox = smallBox("player", 16, addWidget);
+        buyerPriceBox = smallBox("price", 16, addWidget);
+    }
+
+    private EditBox smallBox(String hint, int maxLength, Consumer<EditBox> addWidget) {
+        EditBox box = new EditBox(font, 0, 0, 60, 9, Component.literal(hint));
+        box.setBordered(false);
+        box.setMaxLength(maxLength);
+        box.setHint(Component.literal(hint).withStyle(ChatFormatting.DARK_GRAY));
+        box.visible = false;
+        box.active = false;
+        addWidget.accept(box);
+        return box;
     }
 
     // called when the tab is shown or the view changes, so the pay warning comes up before anything can be bought
@@ -109,6 +127,8 @@ final class CelestialPanel {
         pickerOwner = null;
         scroll = 0;
         salesScroll = 0;
+        buyerScroll = 0;
+        buyerMode = false;
         readyScroll = 0;
         coolingScroll = 0;
         armWarning();
@@ -125,6 +145,12 @@ final class CelestialPanel {
             if (box != null) {
                 box.visible = show;
                 box.active = show;
+            }
+        }
+        for (EditBox box : new EditBox[]{buyerNameBox, buyerPriceBox}) {
+            if (box != null) {
+                box.visible = show && buyerMode;
+                box.active = show && buyerMode;
             }
         }
     }
@@ -688,7 +714,7 @@ final class CelestialPanel {
             box.setY(y + 4);
             box.setWidth(fieldW - 10);
 
-            CelestialMarket.Listing best = CelestialMarket.cheapest(client, currency);
+            CelestialMarket.Listing best = CelestialMarket.cheapestPublic(client, currency);
             int askR = cx + gridR - 4;
             if (best == null) {
                 graphics.drawString(font, "-", askR - font.width("-"), y + 4, DIM, false);
@@ -737,11 +763,15 @@ final class CelestialPanel {
         int sy = cy + salesTop();
         List<CelestialMarket.Sale> sales = CelestialMarket.sales();
         String self = CelestialMarket.selfName(client);
-        drawSmall(graphics, "BOUGHT BY", cx + 6, sy + 2, GOLD);
-        String count = String.valueOf(sales.size());
-        int countX = cx + 6 + smallWidth("BOUGHT BY") + 4;
-        BazzarUi.fillPill(graphics, countX, sy, font.width(count) + 7, 10, 0x2EFFD75A);
-        graphics.drawString(font, count, countX + 4, sy + 1, GOLD, false);
+        drawSectionTab(graphics, boughtTab(), "BOUGHT BY", sales.size(), !buyerMode, mouseX, mouseY);
+        drawSectionTab(graphics, buyerTab(), "BUYER PRICES", CelestialMarket.buyerPrices().size(), buyerMode, mouseX, mouseY);
+        if (buyerTab().contains(mouseX, mouseY)) {
+            tooltip = List.of("Give a player their own price.", "Only they see it on the market.");
+        }
+        if (buyerMode) {
+            drawBuyerPrices(graphics, sy, mouseX, mouseY);
+            return;
+        }
         int numR = w - 82;
         drawSmall(graphics, "PRICE", cx + numR - smallWidth("PRICE"), sy + 2, HDR);
         drawSmall(graphics, "WHEN", cx + w - 4 - smallWidth("WHEN"), sy + 2, HDR);
@@ -766,7 +796,8 @@ final class CelestialPanel {
                 graphics.drawString(font, "*", ax - 2, y + 2, GREY, false);
             }
             if (inside(mouseX, mouseY, cx, y, numR - 40, 10)) {
-                tooltip = via ? List.of(sale.buyer(), "Delivered by " + sale.seller()) : List.of(sale.buyer());
+                tooltip = via ? List.of(sale.buyer(), "Delivered by " + sale.seller(), "Click to give them their own price")
+                        : List.of(sale.buyer(), "Click to give them their own price");
             }
             String price = SbText.formatCompact(sale.price());
             graphics.drawString(font, price, cx + numR - font.width(price), y + 2, GOLD, false);
@@ -776,6 +807,166 @@ final class CelestialPanel {
             graphics.drawString(font, ago, cx + w - 4 - font.width(ago), y + 2, MUTED, false);
         }
         drawScrollbar(graphics, listTop, rows * SALE_ROW_H - 1, salesScroll, rows, sales.size());
+    }
+
+    private Bounds boughtTab() {
+        int sy = cy + salesTop();
+        return new Bounds(cx + 2, sy - 1, sectionTabW("BOUGHT BY", CelestialMarket.sales().size()), 12);
+    }
+
+    private Bounds buyerTab() {
+        Bounds bought = boughtTab();
+        return new Bounds(bought.x() + bought.w() + 4, bought.y(),
+                sectionTabW("BUYER PRICES", CelestialMarket.buyerPrices().size()), 12);
+    }
+
+    private int sectionTabW(String label, int count) {
+        return 4 + smallWidth(label) + 4 + font.width(String.valueOf(count)) + 7 + 4;
+    }
+
+    private void drawSectionTab(GuiGraphics graphics, Bounds tab, String label, int count, boolean selected, int mouseX, int mouseY) {
+        BazzarTheme theme = BazzarTheme.current();
+        boolean hovered = !selected && tab.contains(mouseX, mouseY);
+        if (hovered) {
+            BazzarUi.fillRoundedRect(graphics, tab.x(), tab.y(), tab.w(), tab.h(), 3, theme.buttonBgHover());
+        }
+        int color = selected ? GOLD : hovered ? TEXT : HDR;
+        drawSmall(graphics, label, tab.x() + 4, tab.y() + 3, color);
+        String text = String.valueOf(count);
+        int countX = tab.x() + 4 + smallWidth(label) + 4;
+        BazzarUi.fillPill(graphics, countX, tab.y() + 1, font.width(text) + 7, 10, selected ? 0x2EFFD75A : 0x14FFFFFF);
+        graphics.drawString(font, text, countX + 4, tab.y() + 2, color, false);
+    }
+
+    private int buyerInputY() {
+        return salesTop() + 13;
+    }
+
+    private int buyerListTop() {
+        return buyerInputY() + 16 + 5;
+    }
+
+    private int buyerRows() {
+        return Math.max(1, (h - messageSpace() - buyerListTop()) / SALE_ROW_H);
+    }
+
+    private int buyerNameW() {
+        return Math.max(50, Math.min(100, w - 60 - 66 - 40 - 12));
+    }
+
+    private Bounds buyerPriceField() {
+        return new Bounds(cx + buyerNameW() + 4, cy + buyerInputY(), 60, 16);
+    }
+
+    private Bounds buyerCurrencyButton() {
+        Bounds price = buyerPriceField();
+        return new Bounds(price.x() + price.w() + 4, price.y(), 66, 16);
+    }
+
+    private Bounds buyerSetButton() {
+        Bounds currency = buyerCurrencyButton();
+        return new Bounds(currency.x() + currency.w() + 4, currency.y(), 40, 16);
+    }
+
+    private Bounds buyerRemove(int row) {
+        return new Bounds(cx + w - 12, cy + buyerListTop() + row * SALE_ROW_H, 10, 10);
+    }
+
+    private void drawField(GuiGraphics graphics, EditBox box, int x, int y, int fieldW) {
+        BazzarTheme theme = BazzarTheme.current();
+        BazzarUi.fillRoundedRect(graphics, x, y, fieldW, 16, 3, box.isFocused() ? theme.accent() : FIELD_EDGE);
+        BazzarUi.fillRoundedRect(graphics, x + 1, y + 1, fieldW - 2, 14, 2, FIELD);
+        box.setX(x + 5);
+        box.setY(y + 4);
+        box.setWidth(fieldW - 10);
+    }
+
+    private void drawBuyerPrices(GuiGraphics graphics, int sy, int mouseX, int mouseY) {
+        BazzarTheme theme = BazzarTheme.current();
+        graphics.fill(cx, sy + 10, cx + w, sy + 11, theme.accentDim());
+        int iy = cy + buyerInputY();
+        drawField(graphics, buyerNameBox, cx, iy, buyerNameW());
+        Bounds priceField = buyerPriceField();
+        drawField(graphics, buyerPriceBox, priceField.x(), iy, priceField.w());
+        Bounds currencyButton = buyerCurrencyButton();
+        String currency = CelestialMarket.CURRENCIES[buyerCurrency];
+        drawPill(graphics, currencyButton, "", mouseX, mouseY, false, true);
+        int labelW = 10 + font.width(currency);
+        int labelX = currencyButton.x() + (currencyButton.w() - labelW) / 2;
+        CurrencyIcons.draw(graphics, font, currency, labelX, iy + 4, 1f);
+        graphics.drawString(font, currency, labelX + 10, iy + 4, TEXT, false);
+        if (currencyButton.contains(mouseX, mouseY)) {
+            tooltip = List.of("Click to change currency");
+        }
+        drawPrimaryPill(graphics, buyerSetButton(), "Set", mouseX, mouseY);
+
+        Map<String, Map<String, Double>> buyers = CelestialMarket.buyerPrices();
+        List<String> names = new ArrayList<>(buyers.keySet());
+        int listTop = cy + buyerListTop();
+        int rows = buyerRows();
+        buyerScroll = Math.max(0, Math.min(buyerScroll, names.size() - rows));
+        if (names.isEmpty()) {
+            graphics.drawString(font, fitWords("Type a player and a price, only they see it.", w - 8), cx + 6, listTop + 2, GREY, false);
+        }
+        int nameW = Math.min(110, w / 3);
+        for (int i = 0; i < rows && buyerScroll + i < names.size(); i++) {
+            String buyer = names.get(buyerScroll + i);
+            int y = listTop + i * SALE_ROW_H;
+            boolean rowHover = inside(mouseX, mouseY, cx, y, w - 14, 10);
+            graphics.fill(cx, y, cx + w, y + 10, rowHover ? theme.soft(0x1C) : i % 2 == 0 ? ROW : ROW_ALT);
+            graphics.drawString(font, fitName(buyer, nameW - 6), cx + 6, y + 2, TEXT, false);
+            String prices = CelestialMarket.priceText(buyers.get(buyer));
+            graphics.drawString(font, fitWords(prices, w - nameW - 20), cx + nameW + 4, y + 2, GOLD, false);
+            if (rowHover) {
+                tooltip = List.of(buyer, prices, "Click to change their price");
+            }
+            Bounds remove = buyerRemove(i);
+            boolean removeHover = remove.contains(mouseX, mouseY);
+            graphics.drawString(font, "x", remove.x() + 2, y + 1, removeHover ? RED : GREY, false);
+            if (removeHover) {
+                tooltip = List.of("Remove, " + buyer + " pays", "your normal price again");
+            }
+        }
+        drawScrollbar(graphics, listTop, rows * SALE_ROW_H - 1, buyerScroll, rows, names.size());
+    }
+
+    private boolean buyerClick(Minecraft client, int mouseX, int mouseY) {
+        if (buyerCurrencyButton().contains(mouseX, mouseY)) {
+            buyerCurrency = (buyerCurrency + 1) % CelestialMarket.CURRENCIES.length;
+            return true;
+        }
+        if (buyerSetButton().contains(mouseX, mouseY)) {
+            String buyer = buyerNameBox.getValue().trim();
+            if (!CelestialMarket.validName(buyer)) {
+                buyerNameBox.setValue("");
+                buyerNameBox.setHint(Component.literal("player name").withStyle(ChatFormatting.RED));
+                return true;
+            }
+            Double price = ShardPayoutController.parseCompactNumber(buyerPriceBox.getValue().trim());
+            if (price == null || price <= 0d) {
+                buyerPriceBox.setValue("");
+                buyerPriceBox.setHint(Component.literal("not a price").withStyle(ChatFormatting.RED));
+                return true;
+            }
+            CelestialMarket.setBuyerPrice(client, buyer, CelestialMarket.CURRENCIES[buyerCurrency], price);
+            buyerPriceBox.setValue("");
+            return true;
+        }
+        List<String> names = new ArrayList<>(CelestialMarket.buyerPrices().keySet());
+        int rows = buyerRows();
+        for (int i = 0; i < rows && buyerScroll + i < names.size(); i++) {
+            String buyer = names.get(buyerScroll + i);
+            if (buyerRemove(i).contains(mouseX, mouseY)) {
+                CelestialMarket.removeBuyer(client, buyer);
+                return true;
+            }
+            if (inside(mouseX, mouseY, cx, cy + buyerListTop() + i * SALE_ROW_H, w - 14, 10)) {
+                buyerNameBox.setValue(buyer);
+                buyerPriceBox.setValue("");
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---- boosts ----
@@ -1267,7 +1458,7 @@ final class CelestialPanel {
             String self = CelestialMarket.selfName(client);
             String group = CelestialMarket.groupName(client);
             boolean alt = group != null && self != null && !group.equalsIgnoreCase(self);
-            if (prices.isEmpty() && !alt) {
+            if (prices.isEmpty() && !alt && CelestialMarket.buyerPrices().isEmpty()) {
                 priceBoxes[0].setHint(Component.literal("set at least one").withStyle(ChatFormatting.RED));
                 return true;
             }
@@ -1282,6 +1473,28 @@ final class CelestialPanel {
             CelestialMarket.setPool(client, !BazzarConfig.load().cbPoolEnabled);
             return true;
         }
+        if (boughtTab().contains(mouseX, mouseY)) {
+            buyerMode = false;
+            return true;
+        }
+        if (buyerTab().contains(mouseX, mouseY)) {
+            buyerMode = true;
+            return true;
+        }
+        if (buyerMode) {
+            return buyerClick(client, mouseX, mouseY);
+        }
+        List<CelestialMarket.Sale> sales = CelestialMarket.sales();
+        int listTop = cy + salesTop() + 13;
+        int rows = salesRows();
+        for (int i = 0; i < rows && salesScroll + i < sales.size(); i++) {
+            if (inside(mouseX, mouseY, cx, listTop + i * SALE_ROW_H, w - 82 - 40, 10)) {
+                buyerMode = true;
+                buyerNameBox.setValue(sales.get(salesScroll + i).buyer());
+                buyerPriceBox.setValue("");
+                return true;
+            }
+        }
         return false;
     }
 
@@ -1292,7 +1505,13 @@ final class CelestialPanel {
         int step = (int) Math.signum(scrollY);
         switch (view) {
             case MARKET -> scroll = Math.max(0, scroll - step);
-            case MY_LISTING -> salesScroll = Math.max(0, salesScroll - step);
+            case MY_LISTING -> {
+                if (buyerMode) {
+                    buyerScroll = Math.max(0, buyerScroll - step);
+                } else {
+                    salesScroll = Math.max(0, salesScroll - step);
+                }
+            }
             case BOOSTS -> {
                 if (mouseX < cx + boostColW() + 5) {
                     readyScroll = Math.max(0, readyScroll - step);

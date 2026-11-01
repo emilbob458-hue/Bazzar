@@ -324,7 +324,8 @@ final class FarmWarpScreen extends Screen {
         if (saved == null) {
             return;
         }
-        for (String command : saved) {
+        for (String raw : saved) {
+            String command = FishWarps.upgradeCommand(raw);
             FavEntry entry = findFarm(command);
             if (entry != null && favoriteCommands.add(command)) {
                 favorites.add(entry);
@@ -348,7 +349,7 @@ final class FarmWarpScreen extends Screen {
         if (state.farmFavorites == null) {
             state.farmFavorites = new ArrayList<>();
         }
-        if (!state.farmFavorites.remove(command)) {
+        if (!state.farmFavorites.removeIf(saved -> command.equals(FishWarps.upgradeCommand(saved)))) {
             state.farmFavorites.add(command);
         }
         BazzarConfig.save(state);

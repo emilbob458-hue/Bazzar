@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +31,13 @@ class CelestialMarketTest {
     private static CelestialMarket.Listing listing(String owner, int stock, long readyAt, double tokens) {
         Map<String, Double> prices = new LinkedHashMap<>();
         prices.put("tokens", tokens);
-        return new CelestialMarket.Listing(owner, prices, stock, "cobble", readyAt, true);
+        return new CelestialMarket.Listing(owner, prices, stock, "cobble", readyAt, true, Set.of());
+    }
+
+    private static CelestialMarket.Listing special(String owner, double tokens) {
+        Map<String, Double> prices = new LinkedHashMap<>();
+        prices.put("tokens", tokens);
+        return new CelestialMarket.Listing(owner, prices, 1, "cobble", 0L, true, Set.of("tokens"));
     }
 
     // ---- reading a payment out of chat ----
@@ -215,6 +222,39 @@ class CelestialMarketTest {
         assertFalse(listing("A", 0, NOW, 1d).ready());
         assertEquals(1d, listing("A", 1, 0L, 1d).price("tokens"));
         assertNull(listing("A", 1, 0L, 1d).price("gems"));
+    }
+
+    @Test
+    void aBuyerPriceBeatsTheListedPriceOnlyForThatBuyer() {
+        Map<String, Double> prices = Map.of("tokens", 1_000_000d, "gems", 20d);
+        Map<String, Map<String, Double>> buyers = new LinkedHashMap<>();
+        buyers.put("TinyTurtle", Map.of("tokens", 500_000d));
+
+        assertEquals(500_000d, CelestialMarket.priceFor(prices, buyers, "TinyTurtle", "tokens"));
+        assertEquals(500_000d, CelestialMarket.priceFor(prices, buyers, "tinyturtle", "tokens"));
+        assertEquals(20d, CelestialMarket.priceFor(prices, buyers, "TinyTurtle", "gems"));
+        assertEquals(1_000_000d, CelestialMarket.priceFor(prices, buyers, "SomebodyElse", "tokens"));
+        assertNull(CelestialMarket.priceFor(prices, buyers, "TinyTurtle", "shards"));
+        assertEquals(1_000_000d, CelestialMarket.priceFor(prices, null, "TinyTurtle", "tokens"));
+        assertEquals(7d, CelestialMarket.priceFor(Map.of(), Map.of("Friend", Map.of("cobble", 7d)), "FRIEND", "cobble"));
+    }
+
+    @Test
+    void findsABuyerByNameWhateverTheCase() {
+        Map<String, Map<String, Double>> buyers = new LinkedHashMap<>();
+        buyers.put("TinyTurtle", Map.of("tokens", 1d));
+        assertEquals("TinyTurtle", CelestialMarket.buyerKey(buyers, "TINYTURTLE"));
+        assertNull(CelestialMarket.buyerKey(buyers, "Other"));
+        assertNull(CelestialMarket.buyerKey(null, "TinyTurtle"));
+    }
+
+    @Test
+    void theLowestPublicAskSkipsPricesOnlyWeGet() {
+        List<CelestialMarket.Listing> all = List.of(special("Friend", 1d), listing("Shop", 1, 0L, 5d));
+        assertEquals("Friend", CelestialMarket.cheapest(all, "tokens", "Me").owner());
+        assertEquals("Shop", CelestialMarket.cheapest(all, "tokens", "Me", false).owner());
+        assertTrue(all.get(0).special("tokens"));
+        assertFalse(all.get(1).special("tokens"));
     }
 
     // ---- the price line the listing shows ----

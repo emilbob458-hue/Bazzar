@@ -34,6 +34,7 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
@@ -68,13 +69,18 @@ final class CelestialMarket {
     private static final Queue<Runnable> MAIN_THREAD = new ConcurrentLinkedQueue<>();
 
     // one row per owner: alts paying into the same owner share its prices, stock is how many can boost now
-    record Listing(String owner, Map<String, Double> prices, int stock, String backend, long readyAtLocal, boolean online) {
+    record Listing(String owner, Map<String, Double> prices, int stock, String backend, long readyAtLocal, boolean online,
+            Set<String> special) {
         boolean ready() {
             return stock > 0;
         }
 
         Double price(String currency) {
             return prices.get(currency);
+        }
+
+        boolean special(String currency) {
+            return special.contains(currency);
         }
     }
 
@@ -131,6 +137,32 @@ final class CelestialMarket {
                         deleteListing(ctx.getSource().getClient());
                         return 1;
                     }))
+                    .then(literal("for")
+                            .executes(CelestialMarket::runListBuyers)
+                            .then(argument("player", StringArgumentType.word())
+                                    .suggests((ctx, builder) -> {
+                                        Minecraft client = ctx.getSource().getClient();
+                                        if (client.getConnection() != null) {
+                                            for (PlayerInfo info : client.getConnection().getOnlinePlayers()) {
+                                                builder.suggest(info.getProfile().name());
+                                            }
+                                        }
+                                        return builder.buildFuture();
+                                    })
+                                    .then(literal("off").executes(ctx -> {
+                                        removeBuyer(ctx.getSource().getClient(), StringArgumentType.getString(ctx, "player"));
+                                        status(ctx.getSource().getClient(), lastMessage);
+                                        return 1;
+                                    }))
+                                    .then(argument("price", StringArgumentType.word())
+                                            .then(argument("currency", StringArgumentType.word())
+                                                    .suggests((ctx, builder) -> {
+                                                        for (String currency : CURRENCIES) {
+                                                            builder.suggest(currency);
+                                                        }
+                                                        return builder.buildFuture();
+                                                    })
+                                                    .executes(CelestialMarket::runSetBuyerPrice)))))
                     .then(argument("price", StringArgumentType.word())
                             .then(argument("currency", StringArgumentType.word())
                                     .suggests((ctx, builder) -> {
@@ -203,7 +235,8 @@ final class CelestialMarket {
     }
 
     static void refresh(Minecraft client) {
-        get("/cb/sellers", (code, json) -> {
+        String name = selfName(client);
+        Reply onSellers = (code, json) -> {
             if (code != 200 || json == null) {
                 lastMessage = "Couldn't reach the Bazzar server.";
                 return;
@@ -219,16 +252,26 @@ final class CelestialMarket {
                         prices.put(currency, rawPrices.get(currency).getAsDouble());
                     }
                 }
+                Set<String> special = new HashSet<>();
+                if (seller.has("special")) {
+                    for (JsonElement currency : seller.getAsJsonArray("special")) {
+                        special.add(currency.getAsString());
+                    }
+                }
                 long readyAt = seller.get("readyAt").getAsLong();
                 fresh.add(new Listing(seller.get("owner").getAsString(), prices, seller.get("stock").getAsInt(),
                         seller.get("backend").getAsString(), readyAt <= 0L ? 0L : readyAt + offset,
-                        seller.get("online").getAsBoolean()));
+                        seller.get("online").getAsBoolean(), special));
             }
             listings = sorted(fresh);
             poolReady = json.has("pool") ? json.get("pool").getAsInt() : 0;
             listingsFetchedMs = System.currentTimeMillis();
-        });
-        String name = selfName(client);
+        };
+        if (name == null) {
+            get("/cb/sellers", onSellers);
+        } else {
+            post("/cb/sellers", baseBody(name), onSellers);
+        }
         if (name != null && BazzarConfig.load().cbSellEnabled) {
             post("/cb/sales", baseBody(name), (code, json) -> {
                 if (code != 200 || json == null || !json.has("sales")) {
@@ -316,10 +359,18 @@ final class CelestialMarket {
     }
 
     static Listing cheapest(List<Listing> from, String currency, String group) {
+        return cheapest(from, currency, group, true);
+    }
+
+    static Listing cheapestPublic(Minecraft client, String currency) {
+        return cheapest(listings, currency, groupName(client), false);
+    }
+
+    static Listing cheapest(List<Listing> from, String currency, String group, boolean withSpecial) {
         Listing best = null;
         for (Listing listing : from) {
             Double price = listing.price(currency);
-            if (price == null || !listing.ready() || ownedBy(group, listing)) {
+            if (price == null || !listing.ready() || ownedBy(group, listing) || !withSpecial && listing.special(currency)) {
                 continue;
             }
             if (best == null || price < best.price(currency)) {
@@ -428,9 +479,69 @@ final class CelestialMarket {
         state.cbPrices = new java.util.HashMap<>(prices);
         state.cbSellEnabled = true;
         BazzarConfig.save(state);
-        lastMessage = prices.isEmpty()
-                ? "Listed, using your main's prices."
-                : "Listed your Celestial Boost for " + priceText(prices) + ".";
+        String self = selfName(client);
+        String group = groupName(client);
+        boolean alt = group != null && self != null && !group.equalsIgnoreCase(self);
+        if (!prices.isEmpty()) {
+            lastMessage = "Listed your Celestial Boost for " + priceText(prices) + ".";
+        } else if (alt) {
+            lastMessage = "Listed, using your main's prices.";
+        } else {
+            lastMessage = "Listed, only the players with a buyer price can see it.";
+        }
+        heartbeatNow(client);
+    }
+
+    static Map<String, Map<String, Double>> buyerPrices() {
+        Map<String, Map<String, Double>> buyers = BazzarConfig.load().cbBuyerPrices;
+        return buyers == null ? Map.of() : buyers;
+    }
+
+    static String buyerKey(Map<String, Map<String, Double>> buyers, String buyer) {
+        if (buyers == null || buyer == null) {
+            return null;
+        }
+        for (String name : buyers.keySet()) {
+            if (name.equalsIgnoreCase(buyer)) {
+                return name;
+            }
+        }
+        return null;
+    }
+
+    static Double priceFor(Map<String, Double> prices, Map<String, Map<String, Double>> buyers, String buyer, String currency) {
+        String key = buyerKey(buyers, buyer);
+        Double special = key == null || buyers.get(key) == null ? null : buyers.get(key).get(currency);
+        if (special != null && special > 0d) {
+            return special;
+        }
+        return prices == null ? null : prices.get(currency);
+    }
+
+    static void setBuyerPrice(Minecraft client, String buyer, String currency, double price) {
+        BazzarConfig.State state = BazzarConfig.load();
+        String key = buyerKey(state.cbBuyerPrices, buyer);
+        Map<String, Double> special = key == null ? new LinkedHashMap<>() : state.cbBuyerPrices.remove(key);
+        if (special == null) {
+            special = new LinkedHashMap<>();
+        }
+        special.put(currency, price);
+        state.cbBuyerPrices.put(buyer, special);
+        BazzarConfig.save(state);
+        lastMessage = buyer + " now pays " + priceText(special) + ", only they see it.";
+        heartbeatNow(client);
+    }
+
+    static void removeBuyer(Minecraft client, String buyer) {
+        BazzarConfig.State state = BazzarConfig.load();
+        String key = buyerKey(state.cbBuyerPrices, buyer);
+        if (key == null) {
+            lastMessage = buyer + " has no buyer price.";
+            return;
+        }
+        state.cbBuyerPrices.remove(key);
+        BazzarConfig.save(state);
+        lastMessage = key + " pays your normal price again.";
         heartbeatNow(client);
     }
 
@@ -582,6 +693,23 @@ final class CelestialMarket {
             });
         }
         body.add("prices", prices);
+        JsonObject buyers = new JsonObject();
+        if (state.cbBuyerPrices != null) {
+            state.cbBuyerPrices.forEach((buyer, special) -> {
+                JsonObject entry = new JsonObject();
+                if (special != null) {
+                    special.forEach((currency, price) -> {
+                        if (price != null && price > 0d) {
+                            entry.addProperty(currency, price);
+                        }
+                    });
+                }
+                if (entry.size() > 0) {
+                    buyers.add(buyer, entry);
+                }
+            });
+        }
+        body.add("buyerPrices", buyers);
         body.addProperty("pool", state.cbPoolEnabled);
         post("/cb/status", body, (code, json) -> {
             if (code == 409) {
@@ -699,7 +827,7 @@ final class CelestialMarket {
             }
         }
         // the order often lands a moment after the payment, so anything covering the listed price counts too
-        Double price = state.cbPrices == null ? null : state.cbPrices.get(currency);
+        Double price = priceFor(state.cbPrices, state.cbBuyerPrices, sender, currency);
         return price != null && price > 0d && covers(amount, price);
     }
 
@@ -772,6 +900,35 @@ final class CelestialMarket {
         setPrices(context.getSource().getClient(), prices);
         status(context.getSource().getClient(), lastMessage);
         return 1;
+    }
+
+    private static int runSetBuyerPrice(CommandContext<FabricClientCommandSource> context) {
+        Minecraft client = context.getSource().getClient();
+        String buyer = StringArgumentType.getString(context, "player");
+        Double price = ShardPayoutController.parseCompactNumber(StringArgumentType.getString(context, "price"));
+        String currency = currencyOf(StringArgumentType.getString(context, "currency"));
+        if (!validName(buyer) || price == null || price <= 0d || currency == null) {
+            status(client, "Use /cbsell for <player> <price> <tokens|gems|shards|cobble>, e.g. /cbsell for Steve 500k tokens");
+            return 0;
+        }
+        setBuyerPrice(client, buyer, currency, price);
+        status(client, lastMessage);
+        return 1;
+    }
+
+    private static int runListBuyers(CommandContext<FabricClientCommandSource> context) {
+        Minecraft client = context.getSource().getClient();
+        Map<String, Map<String, Double>> buyers = buyerPrices();
+        if (buyers.isEmpty()) {
+            status(client, "No buyer prices yet. Use /cbsell for <player> <price> <currency>");
+            return 1;
+        }
+        buyers.forEach((buyer, special) -> status(client, buyer + ": " + priceText(special)));
+        return 1;
+    }
+
+    static boolean validName(String name) {
+        return name != null && name.matches("[A-Za-z0-9_]{3,16}");
     }
 
     static String payCommand(String currency) {

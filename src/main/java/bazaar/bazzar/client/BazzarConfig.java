@@ -9,6 +9,7 @@ import com.google.gson.JsonSyntaxException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.nio.file.Files;
@@ -92,6 +93,9 @@ final class BazzarConfig {
         if (state.fishWarpScan == null) {
             state.fishWarpScan = new ArrayList<>();
         }
+        if (state.fishWarpIds == null) {
+            state.fishWarpIds = new ArrayList<>();
+        }
         if (state.chatTriggerMessages == null) {
             state.chatTriggerMessages = new ArrayList<>(List.of("", "", "", "", "", "", "", ""));
         }
@@ -146,6 +150,9 @@ final class BazzarConfig {
         state.milestoneHudStyle = Math.max(0, Math.min(1, state.milestoneHudStyle));
         if (state.cbPrices == null) {
             state.cbPrices = new HashMap<>();
+        }
+        if (state.cbBuyerPrices == null) {
+            state.cbBuyerPrices = new LinkedHashMap<>();
         }
         if (state.cbQuickCurrency == null || state.cbQuickCurrency.isBlank()) {
             state.cbQuickCurrency = "tokens";
@@ -292,6 +299,9 @@ final class BazzarConfig {
         if (loaded.fishWarpScan == null) {
             loaded.fishWarpScan = new ArrayList<>();
         }
+        if (loaded.fishWarpIds == null) {
+            loaded.fishWarpIds = new ArrayList<>();
+        }
         if (loaded.celestialBoosterReadyAt == null) {
             loaded.celestialBoosterReadyAt = new HashMap<>();
         }
@@ -335,6 +345,7 @@ final class BazzarConfig {
         List<String> farmFavorites = new ArrayList<>();
         List<String> fishWarps = new ArrayList<>();
         List<String> fishWarpScan = new ArrayList<>();
+        List<String> fishWarpIds = new ArrayList<>();
         int farmFavX = -1;
         int farmFavY = -1;
         boolean farmQuestsEnabled = true;
@@ -407,6 +418,7 @@ final class BazzarConfig {
         double cobblePayoutMin = 5.0d;
         boolean cbSellEnabled = false;
         Map<String, Double> cbPrices = new HashMap<>();
+        Map<String, Map<String, Double>> cbBuyerPrices = new LinkedHashMap<>();
         boolean cbPoolEnabled = false;
         String cbQuickCurrency = "tokens";
         boolean cbHudVisible = false;
