@@ -45,7 +45,7 @@ final class FishWarps {
         KNOWN.put("pilchard", "Pilchard");
         KNOWN.put("mackerel", "Mackerel");
         KNOWN.put("seabass", "Sea Bass");
-        KNOWN.put("bluefintuna", "Bluefin Tuna");
+        KNOWN.put("bluefin", "Bluefin");
         KNOWN.put("koi", "Koi");
         KNOWN.put("redseabream", "Red Sea Bream");
         KNOWN.put("unagieel", "Unagi Eel");
@@ -60,7 +60,7 @@ final class FishWarps {
         KNOWN.put("tigerfish", "Tigerfish");
     }
 
-    private static final Map<String, String> RENAMED = Map.of("bluefin", "bluefintuna");
+    private static final Map<String, String> RENAMED = Map.of("bluefintuna", "bluefin");
 
     private static final int SCAN_SETTLE_TICKS = 6;
     private static final int SCAN_OPEN_TIMEOUT_TICKS = 100;
