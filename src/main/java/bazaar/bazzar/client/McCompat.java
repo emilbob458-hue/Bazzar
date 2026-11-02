@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.BossHealthOverlay;
+import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
@@ -19,6 +20,13 @@ final class McCompat {
         /*return client.gui.screen();
         *///?} else
         return client.screen;
+    }
+
+    static ChatComponent chatComponent(Minecraft client) {
+        //? if >=26.1 {
+        /*return client.gui.hud.getChat();
+        *///?} else
+        return client.gui.getChat();
     }
 
     static void setScreen(Minecraft client, Screen screen) {

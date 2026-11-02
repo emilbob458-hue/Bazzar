@@ -11,7 +11,8 @@
     "FrameLimitTrackerMixin",
     "ClientLevelBlockMixin",
     "FontAnimatedPrefixMixin",
-    "ChatPeekMixin"
+    "ChatPeekMixin",
+    "ChatPeekScrollMixin"
   ],
   "injectors": {
     "defaultRequire": 1
