@@ -301,6 +301,7 @@ public final class MobMilestones {
         }
         String line = clean(text);
         GuildQuestScanner.onActionBar(line);
+        TreasureTracker.onActionBar(line);
         Matcher matcher = MPS_PATTERN.matcher(line);
         if (!matcher.find()) {
             return;

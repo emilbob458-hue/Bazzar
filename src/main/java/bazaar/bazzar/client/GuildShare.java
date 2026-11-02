@@ -198,6 +198,14 @@ final class GuildShare {
             counts.addProperty(count.getKey(), count.getValue());
         }
         body.add("counts", counts);
+        // the /guild member list too, so guildmates without Bazzar (Mommy Chat) can be told apart from strangers
+        JsonArray roster = new JsonArray();
+        for (String member : GuildRoster.members()) {
+            roster.add(member);
+        }
+        if (!roster.isEmpty()) {
+            body.add("roster", roster);
+        }
         post("/gq/who", body, GuildShare::onWorkers);
     }
 

@@ -37,7 +37,7 @@ import net.minecraft.world.item.Items;
 final class FishWarps {
     static final String COMMAND = "fish";
     private static final int CHECK_INTERVAL_TICKS = 40;
-    // a long row of icons would push the farm warp panel past its maximum width
+    // the warp panel wraps them onto more rows, but past this many it would run off a small screen
     private static final int MAX_SPOTS = 18;
     private static final Map<String, String> KNOWN = new LinkedHashMap<>();
 
@@ -61,6 +61,8 @@ final class FishWarps {
     }
 
     private static final Map<String, String> RENAMED = Map.of("bluefintuna", "bluefin");
+    // spots the server lists under a name that shares nothing with what the menu calls them
+    private static final Map<String, String> SERVER_NAMES = Map.of("redseabream", "madai");
 
     private static final int SCAN_SETTLE_TICKS = 6;
     private static final int SCAN_OPEN_TIMEOUT_TICKS = 100;
@@ -382,7 +384,7 @@ final class FishWarps {
     private static String matchingSpot(String id, List<String> spots) {
         String best = null;
         for (String spot : spots) {
-            if (spot.equals(id)) {
+            if (spot.equals(id) || id.equals(SERVER_NAMES.get(spot))) {
                 return spot;
             }
             String name = normalize(displayName(spot));
@@ -394,6 +396,10 @@ final class FishWarps {
     }
 
     private static String serverId(String spot) {
+        String named = SERVER_NAMES.get(spot);
+        if (named != null) {
+            return named;
+        }
         String best = null;
         String name = normalize(displayName(spot));
         for (String id : serverIds()) {

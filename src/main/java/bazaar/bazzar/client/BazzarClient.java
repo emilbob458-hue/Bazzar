@@ -33,6 +33,7 @@ public class BazzarClient implements ClientModInitializer {
         MobMilestoneHud.applyConfig(config);
         GuildWorkHud.applyConfig(config);
         MobKillHud.applyConfig(config);
+        TreasureHud.applyConfig(config);
         ShardCalculator.setShardPrice(config.shardPrice);
         ShardCalculator.setGemPrice(config.gemPrice);
         ShardCalculator.setCurrentMulti(config.currentMulti);
@@ -67,6 +68,7 @@ public class BazzarClient implements ClientModInitializer {
         CelestialTracker.registerCommands();
         CelestialMarket.registerCommands();
         GuildShare.registerCommands();
+        TreasureTracker.registerCommands();
         Announcements.registerCommands();
         WithdrawController.registerCommands();
         KeyMapping scanKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
@@ -110,6 +112,10 @@ public class BazzarClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_I,
                 BAZZAR_CATEGORY));
         CelestialMarketHud.setBuyKey(cbBuyKey);
+        KeyMapping chatPeekKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.bazzar.chat_peek",
+                GLFW.GLFW_KEY_UNKNOWN,
+                BAZZAR_CATEGORY));
         KeyMapping[] macroKeys = new KeyMapping[MacroController.KEY_MACRO_COUNT];
         for (int i = 0; i < macroKeys.length; i++) {
             macroKeys[i] = KeyBindingHelper.registerKeyBinding(new KeyMapping(
@@ -188,22 +194,30 @@ public class BazzarClient implements ClientModInitializer {
                     MacroController.sendKeyMacro(client, i);
                 }
             }
+            ChatPeek.tick(client, chatPeekKey);
             CommandSender.tick(client);
-            MacroController.tick(client);
-            BazaarAutoScanController.triggerAuto(client);
-            GuildQuestScanner.triggerAuto(client);
-            CookieController.triggerAuto(client);
-            ShardPayController.triggerAuto(client);
-            AutoPunchController.triggerAuto(client);
-            AltCommandController.tick(client);
+            // the things that send commands or pop up on their own wait while a fishing rod is out
+            if (!FishingPause.active(client)) {
+                MacroController.tick(client);
+                BazaarAutoScanController.triggerAuto(client);
+                GuildQuestScanner.triggerAuto(client);
+                CookieController.triggerAuto(client);
+                ShardPayController.triggerAuto(client);
+                AutoPunchController.triggerAuto(client);
+                AltCommandController.tick(client);
+                PlaytimeRewardsController.tick(client);
+                CelestialBoosterReminder.tick(client);
+                AutoDumpController.tick(client);
+                ChatCommandTriggerController.tick(client);
+                GuildRoster.tick(client);
+                Announcements.tick(client);
+                AutoUpdater.tick(client);
+                PayoutQueue.tick(client);
+            }
             WithdrawController.tick(client);
             SessionProfitHud.tick(client);
-            PlaytimeRewardsController.tick(client);
-            CelestialBoosterReminder.tick(client);
             PvScanner.tick(client);
-            AutoDumpController.tick(client);
             ShadySummonerFinder.tick(client);
-            ChatCommandTriggerController.tick(client);
             BazaarAutoScanController.tick(client);
             GuildQuestScanner.tick(client);
             FarmMobScanner.tick(client);
@@ -213,13 +227,10 @@ public class BazzarClient implements ClientModInitializer {
             CelestialMarket.tick(client);
             CelestialMarketHud.tick(client);
             GuildShare.tick(client);
-            GuildRoster.tick(client);
+            TreasureTracker.tick(client);
             CelestialTracker.tick(client);
-            Announcements.tick(client);
             MultiplierMenuScanner.tick(client);
-            AutoUpdater.tick(client);
             UsageStats.tick(client);
-            PayoutQueue.tick(client);
             PlayerStats.tick(client);
             PinnedBazaarHud.tick(client);
             boolean hudDirty = PinnedBazaarHud.consumeDirty();
@@ -231,8 +242,9 @@ public class BazzarClient implements ClientModInitializer {
             boolean milestoneHudDirty = MobMilestoneHud.consumeDirty();
             boolean guildWorkDirty = GuildWorkHud.consumeDirty();
             boolean killHudDirty = MobKillHud.consumeDirty();
+            boolean treasureHudDirty = TreasureHud.consumeDirty();
             if (hudDirty || autoScanDirty || guildQuestDirty || shadyDirty || questHudDirty || profitHudDirty || milestoneHudDirty
-                    || guildWorkDirty || killHudDirty) {
+                    || guildWorkDirty || killHudDirty || treasureHudDirty) {
                 BazzarConfig.State merged = BazzarConfig.load();
                 if (hudDirty) {
                     BazzarConfig.State hudOnly = PinnedBazaarHud.captureConfig();
@@ -265,6 +277,9 @@ public class BazzarClient implements ClientModInitializer {
                 if (killHudDirty) {
                     MobKillHud.applyConfigToState(merged);
                 }
+                if (treasureHudDirty) {
+                    TreasureHud.applyConfigToState(merged);
+                }
                 BazzarConfig.save(merged);
             }
         });
@@ -285,6 +300,10 @@ public class BazzarClient implements ClientModInitializer {
             GemPayoutController.onChatLine(client, msg);
             PayoutQueue.onChatLine(client, msg);
             GuildQuestScanner.onChatLine(msg);
+            // only the server's own lines, never player chat, so nobody can type a fake drop
+            if (!overlay) {
+                TreasureTracker.onChatLine(client, msg);
+            }
             ShardPayController.onChatLine(client, msg);
             CookieController.onChatMessage(client, msg);
             PlaytimeRewardsController.onChatLine(client, msg);
@@ -331,6 +350,7 @@ public class BazzarClient implements ClientModInitializer {
                 CelestialMarketHud.render(graphics, -1, -1);
                 GuildWorkHud.render(graphics, -1, -1);
                 MobKillHud.render(graphics, -1, -1);
+                TreasureHud.render(graphics, -1, -1);
             }
         });
 
@@ -348,6 +368,7 @@ public class BazzarClient implements ClientModInitializer {
                 CelestialMarketHud.onMouseClick(scr, event);
                 GuildWorkHud.onMouseClick(scr, event);
                 MobKillHud.onMouseClick(scr, event);
+                TreasureHud.onMouseClick(scr, event);
                 ScoreboardOverlay.onMouseClick(scr, event);
                 return false;
             });
@@ -360,6 +381,7 @@ public class BazzarClient implements ClientModInitializer {
                 CelestialMarketHud.onMouseRelease(scr, event);
                 GuildWorkHud.onMouseRelease(scr, event);
                 MobKillHud.onMouseRelease(scr, event);
+                TreasureHud.onMouseRelease(scr, event);
                 ScoreboardOverlay.onMouseRelease(scr, event);
                 return false;
             });
@@ -372,6 +394,7 @@ public class BazzarClient implements ClientModInitializer {
                 CelestialMarketHud.onMouseDrag(scr, event, deltaX, deltaY);
                 GuildWorkHud.onMouseDrag(scr, event, deltaX, deltaY);
                 MobKillHud.onMouseDrag(scr, event, deltaX, deltaY);
+                TreasureHud.onMouseDrag(scr, event, deltaX, deltaY);
                 ScoreboardOverlay.onMouseDrag(scr, event, deltaX, deltaY);
                 return false;
             });
@@ -382,6 +405,7 @@ public class BazzarClient implements ClientModInitializer {
                 MobMilestoneHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 GuildWorkHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 MobKillHud.onMouseScroll(mouseX, mouseY, verticalAmount);
+                TreasureHud.onMouseScroll(mouseX, mouseY, verticalAmount);
                 ScoreboardOverlay.onMouseScroll(mouseX, mouseY, verticalAmount);
                 return false;
             });
@@ -395,6 +419,7 @@ public class BazzarClient implements ClientModInitializer {
                 CelestialMarketHud.render(graphics, mouseX, mouseY);
                 GuildWorkHud.render(graphics, mouseX, mouseY);
                 MobKillHud.render(graphics, mouseX, mouseY);
+                TreasureHud.render(graphics, mouseX, mouseY);
             });
         });
     }

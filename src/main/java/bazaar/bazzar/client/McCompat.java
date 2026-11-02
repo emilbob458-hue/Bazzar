@@ -36,6 +36,9 @@ final class McCompat {
     }
 
     static void showTitle(Minecraft client, int fadeIn, int stay, int fadeOut, Component title) {
+        if (FishingPause.active(client)) {
+            return;
+        }
         //? if >=26.1 {
         /*client.gui.hud.setTimes(fadeIn, stay, fadeOut);
         client.gui.hud.setSubtitle(Component.empty());
@@ -48,6 +51,9 @@ final class McCompat {
     }
 
     static void showTitle(Minecraft client, int fadeIn, int stay, int fadeOut, Component title, Component subtitle) {
+        if (FishingPause.active(client)) {
+            return;
+        }
         //? if >=26.1 {
         /*client.gui.hud.setTimes(fadeIn, stay, fadeOut);
         client.gui.hud.setSubtitle(subtitle);

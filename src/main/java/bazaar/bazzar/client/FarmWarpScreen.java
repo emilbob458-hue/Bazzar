@@ -33,6 +33,8 @@ final class FarmWarpScreen extends Screen {
     private static final int SECTION_PAD = 6;
     private static final int SECTION_H = SECTION_HEADER_H + ICON_ROW_H + SECTION_PAD;
     private static final int ICON_STEP = 22;
+    // as many as a world has crops; a longer row (the fishing spots) carries on below
+    private static final int ICONS_PER_ROW = 8;
     private static final int BOTTOM_PAD = 8;
     private static final int HINT_H = 14;
     private static final String WORLD_HINT = "Warp to world ▶";
@@ -365,14 +367,34 @@ final class FarmWarpScreen extends Screen {
         for (int i = 0; i < worlds.length; i++) {
             int nameRowW = 16 + font.width(worldLabels[i]) + 12 + hintW + 10;
             int crops = worldCrops.getOrDefault(worlds[i], List.of()).size();
-            int iconRowW = crops == 0 ? 0 : 16 + (crops - 1) * ICON_STEP + 20 + 8;
+            int perRow = Math.min(crops, ICONS_PER_ROW);
+            int iconRowW = crops == 0 ? 0 : 16 + (perRow - 1) * ICON_STEP + 20 + 8;
             needed = Math.max(needed, Math.max(nameRowW, iconRowW));
         }
         return needed;
     }
 
     private int panelHeight() {
-        return TITLE_H + topSectionsH() + WorldTab.values().length * SECTION_H + HINT_H + BOTTOM_PAD;
+        return TITLE_H + topSectionsH() + sectionsH(WorldTab.values().length) + HINT_H + BOTTOM_PAD;
+    }
+
+    private int iconRows(WorldTab world) {
+        int crops = worldCrops.getOrDefault(world, List.of()).size();
+        return Math.max(1, (crops + ICONS_PER_ROW - 1) / ICONS_PER_ROW);
+    }
+
+    private int sectionH(WorldTab world) {
+        return SECTION_H + (iconRows(world) - 1) * ICON_ROW_H;
+    }
+
+    // the height of the first count world sections
+    private int sectionsH(int count) {
+        WorldTab[] worlds = WorldTab.values();
+        int total = 0;
+        for (int i = 0; i < count; i++) {
+            total += sectionH(worlds[i]);
+        }
+        return total;
     }
 
     private int topSectionsH() {
@@ -493,7 +515,7 @@ final class FarmWarpScreen extends Screen {
                 continue;
             }
             String name = worlds[i].displayName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
-            if (wanted.equals(name) || wanted.equals("world" + (i + 1))) {
+            if (wanted.equals(name) || wanted.equals("world" + (i + 1)) || wanted.equals("w" + (i + 1))) {
                 return worlds[i].displayName;
             }
         }
@@ -714,7 +736,7 @@ final class FarmWarpScreen extends Screen {
             int sy = sectionY(i);
             List<FarmEntry> crops = worldCrops.getOrDefault(world, List.of());
 
-            graphics.fill(left + 8, sy, left + 10, sy + SECTION_H - SECTION_PAD - 2, theme.soft(0xCC));
+            graphics.fill(left + 8, sy, left + 10, sy + sectionH(world) - SECTION_PAD - 2, theme.soft(0xCC));
 
             graphics.drawString(font, worldLabels[i], left + 16, sy, 0xFFFFFFFF, false);
             if (!world.warpCommand.isEmpty() && isInside(mouseX, mouseY, nameBounds(i))) {
@@ -724,7 +746,7 @@ final class FarmWarpScreen extends Screen {
 
             for (int j = 0; j < crops.size(); j++) {
                 int ix = iconX(j);
-                int iy = iconY(i);
+                int iy = iconY(i, j);
                 if (isInside(mouseX, mouseY, ix - 2, iy - 2, 20, 20)) {
                     BazzarUi.fillRoundedRect(graphics, ix - 2, iy - 2, 20, 20, 3, theme.soft(0x40));
                     hoveredCropLabel = BazzarUi.gradientText(crops.get(j).name(), world.gradFrom, world.gradTo, false);
@@ -737,7 +759,7 @@ final class FarmWarpScreen extends Screen {
             }
 
             if (i < worlds.length - 1) {
-                graphics.fill(left + 8, sy + SECTION_H - 4, left + panelW - 8, sy + SECTION_H - 3, theme.soft(0x44));
+                graphics.fill(left + 8, sy + sectionH(world) - 4, left + panelW - 8, sy + sectionH(world) - 3, theme.soft(0x44));
             }
         }
 
@@ -806,7 +828,7 @@ final class FarmWarpScreen extends Screen {
 
     @Override
     public void tick() {
-        if (closingSinceMs < 0L && FarmMobScanner.shouldAutoScan()
+        if (closingSinceMs < 0L && FarmMobScanner.shouldAutoScan() && !FishingPause.active(Minecraft.getInstance())
                 && FarmMobScanner.start(Minecraft.getInstance(), true)) {
             return;
         }
@@ -886,7 +908,7 @@ final class FarmWarpScreen extends Screen {
             }
             List<FarmEntry> crops = worldCrops.getOrDefault(worlds[i], List.of());
             for (int j = 0; j < crops.size(); j++) {
-                if (isInside(mouseX, mouseY, iconX(j) - 2, iconY(i) - 2, 20, 20)) {
+                if (isInside(mouseX, mouseY, iconX(j) - 2, iconY(i, j) - 2, 20, 20)) {
                     if (rightClick) {
                         toggleFavorite(crops.get(j).command());
                     } else {
@@ -960,7 +982,7 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int hintY() {
-        return top + TITLE_H + topSectionsH() + WorldTab.values().length * SECTION_H + 2;
+        return top + TITLE_H + topSectionsH() + sectionsH(WorldTab.values().length) + 2;
     }
 
     private ButtonBounds scanBounds() {
@@ -974,15 +996,15 @@ final class FarmWarpScreen extends Screen {
     }
 
     private int sectionY(int index) {
-        return top + TITLE_H + topSectionsH() + index * SECTION_H + 4;
+        return top + TITLE_H + topSectionsH() + sectionsH(index) + 4;
     }
 
     private int iconX(int cropIndex) {
-        return left + 16 + cropIndex * ICON_STEP;
+        return left + 16 + (cropIndex % ICONS_PER_ROW) * ICON_STEP;
     }
 
-    private int iconY(int sectionIndex) {
-        return sectionY(sectionIndex) + SECTION_HEADER_H + 2;
+    private int iconY(int sectionIndex, int cropIndex) {
+        return sectionY(sectionIndex) + SECTION_HEADER_H + 2 + (cropIndex / ICONS_PER_ROW) * ICON_ROW_H;
     }
 
     private ButtonBounds nameBounds(int index) {

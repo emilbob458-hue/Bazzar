@@ -93,6 +93,13 @@ final class BazzarConfig {
         if (state.fishWarpScan == null) {
             state.fishWarpScan = new ArrayList<>();
         }
+        if (state.treasures == null) {
+            state.treasures = new LinkedHashMap<>();
+        }
+        if (state.treasureLockedWorlds == null) {
+            state.treasureLockedWorlds = new ArrayList<>();
+        }
+        state.treasureHudScale = Math.max(0.65f, Math.min(2.5f, state.treasureHudScale));
         if (state.fishWarpIds == null) {
             state.fishWarpIds = new ArrayList<>();
         }
@@ -299,6 +306,12 @@ final class BazzarConfig {
         if (loaded.fishWarpScan == null) {
             loaded.fishWarpScan = new ArrayList<>();
         }
+        if (loaded.treasures == null) {
+            loaded.treasures = new LinkedHashMap<>();
+        }
+        if (loaded.treasureLockedWorlds == null) {
+            loaded.treasureLockedWorlds = new ArrayList<>();
+        }
         if (loaded.fishWarpIds == null) {
             loaded.fishWarpIds = new ArrayList<>();
         }
@@ -346,6 +359,13 @@ final class BazzarConfig {
         List<String> fishWarps = new ArrayList<>();
         List<String> fishWarpScan = new ArrayList<>();
         List<String> fishWarpIds = new ArrayList<>();
+        Map<String, Treasures.Info> treasures = new LinkedHashMap<>();
+        List<String> treasureLockedWorlds = new ArrayList<>();
+        boolean treasureHudVisible = true;
+        boolean treasureLuckOnly = false;
+        int treasureHudX = 6;
+        int treasureHudY = 260;
+        float treasureHudScale = 1.0f;
         int farmFavX = -1;
         int farmFavY = -1;
         boolean farmQuestsEnabled = true;

@@ -49,5 +49,6 @@ public final class BlockBreakCounter {
         SessionProfitHud.onBlockBroken();
         PlayerStats.onBlockBroken();
         GuildQuestScanner.onBlockBroken(state.getBlock().getName().getString());
+        TreasureTracker.onBlockBroken(state.getBlock().getName().getString());
     }
 }

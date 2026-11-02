@@ -1,6 +1,5 @@
 package bazaar.bazzar.client;
 
-import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -17,8 +16,9 @@ final class GuildWorkHud {
     private static final int HEADER_HEIGHT = 13;
     private static final int ROW_HEIGHT = 11;
     private static final int LABEL_HEIGHT = 10;
-    private static final long RATE_WINDOW_MS = 60L * 60_000L;
-    private static final long MIN_RATE_SPAN_MS = 10L * 60_000L;
+    private static final long FORGET_MS = 60L * 60_000L;
+    // the guild gets this many quests every hour
+    private static final int QUESTS_PER_HOUR = 5;
     private static final long ACTIVE_MS = 30_000L;
     private static final Map<String, Tracked> TRACKED = new HashMap<>();
 
@@ -60,12 +60,7 @@ final class GuildWorkHud {
             long gained = tracked.seen ? (done >= tracked.lastDone ? done - tracked.lastDone : done) : 0L;
             tracked.seen = true;
             tracked.lastDone = done;
-            tracked.total += gained;
             tracked.lastSeenMs = now;
-            tracked.samples.addLast(new long[]{now, tracked.total});
-            while (tracked.samples.size() > 1 && now - tracked.samples.peekFirst()[0] > RATE_WINDOW_MS) {
-                tracked.samples.pollFirst();
-            }
             if (gained > 0L) {
                 tracked.activeAtMs = now;
                 String quest = busiestQuest(tracked.lastCounts, worker.counts());
@@ -75,7 +70,7 @@ final class GuildWorkHud {
             }
             tracked.lastCounts = worker.counts();
         }
-        TRACKED.values().removeIf(tracked -> now - tracked.lastSeenMs > RATE_WINDOW_MS);
+        TRACKED.values().removeIf(tracked -> now - tracked.lastSeenMs > FORGET_MS);
     }
 
     private static String busiestQuest(Map<String, Long> before, Map<String, Long> after) {
@@ -91,6 +86,38 @@ final class GuildWorkHud {
         return best;
     }
 
+    // how many of this hour's quests their counts add up to: each count over what its quest needs,
+    // so a quest they finished alone is 1 however far past it they went, and half of one is 0.5
+    static double questsDone(Map<String, Long> counts) {
+        double quests = 0d;
+        for (Map.Entry<String, Long> count : counts.entrySet()) {
+            // the key ends in the quest's required amount, e.g. "killzombies:5000"
+            int colon = count.getKey().lastIndexOf(':');
+            double required = 0d;
+            try {
+                required = colon < 0 ? 0d : Double.parseDouble(count.getKey().substring(colon + 1));
+            } catch (NumberFormatException ignored) {
+            }
+            if (required > 0d && count.getValue() > 0L) {
+                quests += Math.min(1d, count.getValue() / required);
+            }
+        }
+        return quests;
+    }
+
+    private static int questsPerHour() {
+        int listed = GuildQuestScanner.getLastEntries().size();
+        return listed > 0 ? listed : QUESTS_PER_HOUR;
+    }
+
+    static String questsText(double quests, int perHour) {
+        String done = String.format(Locale.ROOT, "%.1f", Math.min(quests, perHour));
+        if (done.endsWith(".0")) {
+            done = done.substring(0, done.length() - 2);
+        }
+        return done + " of " + perHour;
+    }
+
     static void render(GuiGraphics graphics, int mouseX, int mouseY) {
         HudBoxes.hide("guildwork");
         Minecraft client = Minecraft.getInstance();
@@ -100,22 +127,19 @@ final class GuildWorkHud {
         long now = System.currentTimeMillis();
         String note = note();
         GuildShare.Worker top = null;
-        double topRate = 0d;
+        double topQuests = 0d;
         GuildShare.Worker active = null;
         long activeAt = 0L;
         int activeCount = 0;
         if (note == null) {
             for (GuildShare.Worker worker : GuildShare.workers()) {
-                Tracked tracked = TRACKED.get(worker.name().toLowerCase(Locale.ROOT));
-                if (tracked == null) {
-                    continue;
-                }
-                double rate = tracked.perHour(now);
-                if (rate > topRate) {
-                    topRate = rate;
+                double quests = questsDone(worker.counts());
+                if (quests > topQuests) {
+                    topQuests = quests;
                     top = worker;
                 }
-                if (now - tracked.activeAtMs <= ACTIVE_MS) {
+                Tracked tracked = TRACKED.get(worker.name().toLowerCase(Locale.ROOT));
+                if (tracked != null && now - tracked.activeAtMs <= ACTIVE_MS) {
                     activeCount++;
                     if (tracked.activeAtMs > activeAt) {
                         activeAt = tracked.activeAtMs;
@@ -153,7 +177,7 @@ final class GuildWorkHud {
         if (top == null) {
             graphics.drawString(font, "Nobody has done any this hour", 0, rowY, MUTED_TEXT, false);
         } else {
-            String value = SbText.formatCompact(topRate) + "/h";
+            String value = questsText(topQuests, questsPerHour());
             int valueX = BASE_WIDTH - font.width(value);
             graphics.drawString(font, value, valueX, rowY, VALUE_COLOR, false);
             String name = font.plainSubstrByWidth(top.name(), valueX - 4);
@@ -294,25 +318,11 @@ final class GuildWorkHud {
     }
 
     private static final class Tracked {
-        private final ArrayDeque<long[]> samples = new ArrayDeque<>();
         private Map<String, Long> lastCounts = Map.of();
         private boolean seen = false;
         private long lastDone = 0L;
-        private long total = 0L;
         private long lastSeenMs = 0L;
         private long activeAtMs = 0L;
         private String questKey = null;
-
-        private double perHour(long now) {
-            if (samples.isEmpty()) {
-                return 0d;
-            }
-            long[] first = samples.peekFirst();
-            long gained = total - first[1];
-            if (gained <= 0L) {
-                return 0d;
-            }
-            return gained * 3_600_000d / Math.max(MIN_RATE_SPAN_MS, now - first[0]);
-        }
     }
 }

@@ -52,7 +52,7 @@ final class WithdrawController {
         MOB_DROPS
     }
 
-    private static final String USAGE = "Usage: /withdraw <item or world> [amount]";
+    private static final String USAGE = "Usage: /withdraw <item or worlds, like w1 w2> [amount]";
     private static final int SETTLE_TICKS = 4;
     private static final int BETWEEN_ITEMS_TICKS = 10;
     private static final int GUI_TIMEOUT_TICKS = 100;
@@ -96,6 +96,11 @@ final class WithdrawController {
                         .then(argument("item", StringArgumentType.greedyString())
                                 .suggests((ctx, builder) -> {
                                     String typed = builder.getRemaining().toLowerCase(Locale.ROOT);
+                                    for (int i = 1; i <= FarmWarpScreen.worldNames().size(); i++) {
+                                        if (("w" + i).startsWith(typed) && !typed.isEmpty()) {
+                                            builder.suggest("w" + i);
+                                        }
+                                    }
                                     for (String name : FarmWarpScreen.worldNames()) {
                                         if (name.toLowerCase(Locale.ROOT).startsWith(typed)) {
                                             builder.suggest(name);
@@ -130,12 +135,14 @@ final class WithdrawController {
         withdrawn.clear();
         missed.clear();
         amount = requested;
-        String world = FarmWarpScreen.worldName(item);
-        if (world != null) {
-            batchName = world;
-            upcoming.addAll(FarmWarpScreen.cropNames(world));
+        List<String> worlds = worlds(item);
+        if (!worlds.isEmpty()) {
+            batchName = String.join(", ", worlds);
+            for (String world : worlds) {
+                upcoming.addAll(FarmWarpScreen.cropNames(world));
+            }
             ctx.getSource().sendFeedback(BazaarChat.prefix().append(Component.literal("Withdrawing "
-                    + (amount == null ? "all" : amount) + " of each crop in " + world + " (" + upcoming.size() + " items)...")
+                    + (amount == null ? "all" : amount) + " of each crop in " + batchName + " (" + upcoming.size() + " items)...")
                     .withStyle(ChatFormatting.AQUA)));
         } else {
             batchName = null;
@@ -145,6 +152,25 @@ final class WithdrawController {
         }
         startNext(Minecraft.getInstance());
         return 1;
+    }
+
+    // one world by name, or several by number: "w1 w2 w3" queues the crops of each in turn
+    private static List<String> worlds(String input) {
+        String whole = FarmWarpScreen.worldName(input);
+        if (whole != null) {
+            return List.of(whole);
+        }
+        List<String> worlds = new ArrayList<>();
+        for (String part : input.trim().split("[\\s,]+")) {
+            String world = FarmWarpScreen.worldName(part);
+            if (world == null) {
+                return List.of();
+            }
+            if (!worlds.contains(world)) {
+                worlds.add(world);
+            }
+        }
+        return worlds;
     }
 
     private static void startNext(Minecraft client) {
