@@ -212,8 +212,9 @@ public class BazzarClient implements ClientModInitializer {
                 GuildRoster.tick(client);
                 Announcements.tick(client);
                 AutoUpdater.tick(client);
-                PayoutQueue.tick(client);
             }
+            // auto payouts are just a chat command, they don't open a menu, so they don't wait on the rod
+            PayoutQueue.tick(client);
             WithdrawController.tick(client);
             SessionProfitHud.tick(client);
             PvScanner.tick(client);
