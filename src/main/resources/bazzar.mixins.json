@@ -10,7 +10,8 @@
     "GuiTitleMixin",
     "FrameLimitTrackerMixin",
     "ClientLevelBlockMixin",
-    "FontAnimatedPrefixMixin"
+    "FontAnimatedPrefixMixin",
+    "ChatPeekMixin"
   ],
   "injectors": {
     "defaultRequire": 1

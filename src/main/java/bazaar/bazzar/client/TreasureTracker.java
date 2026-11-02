@@ -3,6 +3,7 @@ package bazaar.bazzar.client;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
 import java.lang.reflect.Field;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -13,6 +14,7 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.BossHealthOverlay;
+import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
@@ -25,7 +27,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 
 // the treasure of the crop you're farming: the crop comes off the action bar ("+20 Nether Quartz"), its
-// level and odds from /treasures -> that crop's world, and drops keep the count up to date between scans
+// level and odds from /treasures, where every world's vault is read in one go, and drops keep the count
+// up to date between scans
 final class TreasureTracker {
     private static final String COMMAND = "treasures";
     private static final long FARMING_MS = 30_000L;
@@ -51,8 +54,15 @@ final class TreasureTracker {
     private static long actionBarAtMs = 0L;
 
     private static State state = State.IDLE;
+    // the worlds still to read this scan, the one being read now is scanWorld
+    private static final ArrayDeque<String> scanQueue = new ArrayDeque<>();
     private static String scanWorld = null;
+    private static int scanRead = 0;
+    private static int scanWorlds = 0;
+    private static final List<String> scanSkipped = new ArrayList<>();
     private static boolean scanByHand = false;
+    // the scan command runs while the chat box is still up, so it starts on the next tick once chat is shut
+    private static boolean handScanQueued = false;
     private static int ticks = 0;
     private static final Map<String, Long> nextTryMs = new HashMap<>();
     private static final Map<String, Long> rescanAtMs = new HashMap<>();
@@ -90,19 +100,14 @@ final class TreasureTracker {
                             return 1;
                         }))
                         .then(literal("scan").executes(ctx -> {
-                            Minecraft client = ctx.getSource().getClient();
-                            if (world == null) {
-                                say(client, "Farm a crop first, the scan reads that crop's world.");
-                                return 0;
-                            }
+                            // a world may have been unlocked since, so a scan by hand tries them all again
                             BazzarConfig.State config = BazzarConfig.load();
-                            if (config.treasureLockedWorlds != null && config.treasureLockedWorlds.remove(world)) {
+                            if (config.treasureLockedWorlds != null && !config.treasureLockedWorlds.isEmpty()) {
+                                config.treasureLockedWorlds.clear();
                                 BazzarConfig.save(config);
                             }
-                            nextTryMs.remove(world);
-                            if (!start(client, world, true)) {
-                                say(client, "Can't open /treasures right now, close what's open and try again.");
-                            }
+                            nextTryMs.clear();
+                            handScanQueued = true;
                             return 1;
                         }))));
     }
@@ -237,7 +242,23 @@ final class TreasureTracker {
             tickScan(client);
             return;
         }
-        if (!TreasureHud.isVisible() || !farming() || !needsScan(world)) {
+        if (handScanQueued && !(McCompat.screen(client) instanceof ChatScreen)) {
+            handScanQueued = false;
+            if (!start(client, FarmWarpScreen.worldNames(), true)) {
+                say(client, "Can't open /treasures right now, close what's open and try again.");
+            }
+            return;
+        }
+        if (!TreasureHud.isVisible() || !farming()) {
+            return;
+        }
+        List<String> due = new ArrayList<>();
+        for (String worldName : FarmWarpScreen.worldNames()) {
+            if (needsScan(worldName)) {
+                due.add(worldName);
+            }
+        }
+        if (due.isEmpty()) {
             return;
         }
         // the menu only opens when nothing else is up and nothing else of ours is busy with a menu
@@ -246,7 +267,7 @@ final class TreasureTracker {
                 || FishWarps.isScanning() || GuildRoster.isScanning()) {
             return;
         }
-        start(client, world, false);
+        start(client, due, false);
     }
 
     private static boolean needsScan(String worldName) {
@@ -269,18 +290,30 @@ final class TreasureTracker {
         return true;
     }
 
-    private static boolean start(Minecraft client, String worldName, boolean byHand) {
-        if (state != State.IDLE || client.player == null || McCompat.screen(client) != null) {
+    private static boolean start(Minecraft client, List<String> worldNames, boolean byHand) {
+        if (state != State.IDLE || client.player == null || McCompat.screen(client) != null || worldNames.isEmpty()) {
             return false;
         }
-        scanWorld = worldName;
+        long retryAt = System.currentTimeMillis() + RETRY_MS;
+        scanQueue.clear();
+        for (String worldName : worldNames) {
+            scanQueue.add(worldName);
+            nextTryMs.put(worldName, retryAt);
+            rescanAtMs.remove(worldName);
+        }
+        scanWorld = null;
         scanByHand = byHand;
+        scanRead = 0;
+        scanWorlds = 0;
+        scanSkipped.clear();
+        openTreasury(client);
+        return true;
+    }
+
+    private static void openTreasury(Minecraft client) {
         ticks = 0;
-        nextTryMs.put(worldName, System.currentTimeMillis() + RETRY_MS);
-        rescanAtMs.remove(worldName);
         state = State.WAIT_TREASURY;
         CommandSender.send(client, COMMAND);
-        return true;
     }
 
     private static void tickScan(Minecraft client) {
@@ -297,18 +330,25 @@ final class TreasureTracker {
                 if (ticks < SETTLE_TICKS) {
                     return;
                 }
-                int slot = worldSlot(screen, scanWorld);
-                if (slot == -2) {
-                    BazzarConfig.State config = BazzarConfig.load();
-                    if (!config.treasureLockedWorlds.contains(scanWorld)) {
-                        config.treasureLockedWorlds.add(scanWorld);
-                        BazzarConfig.save(config);
+                // locked and missing worlds drop out here and are left alone until a scan by hand,
+                // the next one left gets opened
+                int slot = -1;
+                while (slot < 0 && !scanQueue.isEmpty()) {
+                    scanWorld = scanQueue.poll();
+                    slot = worldSlot(screen, scanWorld);
+                    if (slot < 0) {
+                        BazzarConfig.State config = BazzarConfig.load();
+                        if (!config.treasureLockedWorlds.contains(scanWorld)) {
+                            config.treasureLockedWorlds.add(scanWorld);
+                            BazzarConfig.save(config);
+                        }
+                        if (slot == -1) {
+                            scanSkipped.add(scanWorld);
+                        }
                     }
-                    finish(client, scanWorld + " is locked in /" + COMMAND + ", skipping it.");
-                    return;
                 }
                 if (slot < 0) {
-                    finish(client, "Couldn't find " + scanWorld + " in /" + COMMAND + ".");
+                    finish(client, summary());
                     return;
                 }
                 client.gameMode.handleInventoryMouseClick(screen.getMenu().containerId, slot, 0, ClickType.PICKUP, client.player);
@@ -325,13 +365,24 @@ final class TreasureTracker {
                 if (ticks < SETTLE_TICKS) {
                     return;
                 }
-                int read = readVault(client, screen, scanWorld);
-                finish(client, read == 0 ? "No treasures found in the " + scanWorld + " vault."
-                        : "Read " + read + " treasures from " + scanWorld + ".");
+                scanRead += readVault(client, screen, scanWorld);
+                scanWorlds++;
+                if (scanQueue.isEmpty()) {
+                    finish(client, summary());
+                } else {
+                    client.player.closeContainer();
+                    openTreasury(client);
+                }
             }
             default -> {
             }
         }
+    }
+
+    private static String summary() {
+        String text = scanWorlds == 0 ? "No unlocked worlds found in /" + COMMAND + "."
+                : "Read " + scanRead + " treasures from " + scanWorlds + (scanWorlds == 1 ? " world." : " worlds.");
+        return scanSkipped.isEmpty() ? text : text + " Couldn't find " + String.join(", ", scanSkipped) + ".";
     }
 
     // the slot of the world's icon, -2 if it's there but locked, -1 if it isn't there at all
@@ -404,6 +455,7 @@ final class TreasureTracker {
         if (scanByHand) {
             say(client, message);
         }
+        scanQueue.clear();
         scanWorld = null;
         scanByHand = false;
     }
